@@ -52,17 +52,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="assets/65x45.png" type="image/x-icon">
+    
+    <link rel="icon" href="assets/65x45.png" type="image/x-icon">
     <title>Registro - Sistema de Aprobación de Facturas</title>
     <link rel="stylesheet" href="assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         :root {
-            --primary-color: #4361ee;
-            --secondary-color: #3a56e4;
+            --primary-color: #003b7a; /* Color azul de Oral Plus */
+            --secondary-color: #0056b3; /* Azul secundario */
             --accent-color: #f8f9fc;
-            --text-color: #5a5c69;
+            --text-color: #333333;
             --border-color: #e4e6ef;
-            --box-shadow: 0 5px 20px rgba(67, 97, 238, 0.1);
+            --box-shadow: 0 5px 20px rgba(0, 59, 122, 0.15);
         }
         
         body {
@@ -74,11 +77,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             justify-content: center;
             margin: 0;
             padding: 20px 0;
+            background-image: linear-gradient(to bottom, #f0f2f5, #e6eef8);
         }
         
         .register-container {
             width: 100%;
-            max-width: 480px;
+            max-width: 520px;
             padding: 15px;
         }
         
@@ -92,37 +96,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .logo-container {
             display: flex;
             justify-content: center;
-            margin-bottom: 10px;
+            margin-bottom: 20px;
         }
         
-        .logo-circle {
-            width: 80px;
-            height: 80px;
-            background-color: var(--primary-color);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: var(--box-shadow);
-        }
-        
-        .logo-circle i {
-            font-size: 34px;
-            color: white;
+        .logo {
+            max-width: 220px;
+            height: auto;
         }
         
         .card-header {
             background-color: var(--primary-color);
             color: white;
             text-align: center;
-            padding: 20px;
+            padding: 25px 20px;
             border-bottom: none;
+            position: relative;
+        }
+        
+        .card-header:after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(to right, #003b7a, #0056b3, #0077cc);
         }
         
         .card-header h3 {
             margin: 0;
             font-weight: 600;
-            font-size: 1.5rem;
+            font-size: 1.6rem;
+        }
+        
+        .system-name {
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.8);
+            margin-top: 5px;
         }
         
         .card-body {
@@ -132,29 +142,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         .input-group {
             position: relative;
-            margin-bottom: 20px;
+            margin-bottom: 22px;
         }
         
         .input-group label {
             display: block;
-            font-size: 0.85rem;
-            color: #6c757d;
-            margin-bottom: 5px;
+            font-size: 0.9rem;
+            color: #555;
+            margin-bottom: 8px;
+            font-weight: 500;
         }
         
         .input-field {
             width: 100%;
-            padding: 12px 15px;
+            padding: 14px 15px;
             font-size: 1rem;
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            transition: all 0.2s ease;
+            transition: all 0.3s ease;
             outline: none;
+            background-color: #f9fafc;
         }
         
         .input-field:focus {
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15);
+            box-shadow: 0 0 0 3px rgba(0, 59, 122, 0.15);
+            background-color: #fff;
         }
         
         .input-field::placeholder {
@@ -164,19 +177,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .input-icon {
             position: absolute;
             right: 15px;
-            top: 38px;
-            color: #adb5bd;
+            top: 42px;
+            color: #6c757d;
             cursor: pointer;
         }
         
         .select-field {
             width: 100%;
-            padding: 12px 15px;
+            padding: 14px 15px;
             font-size: 1rem;
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            background-color: white;
-            transition: all 0.2s ease;
+            background-color: #f9fafc;
+            transition: all 0.3s ease;
             outline: none;
             appearance: none;
             -webkit-appearance: none;
@@ -186,7 +199,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         .select-field:focus {
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.15);
+            box-shadow: 0 0 0 3px rgba(0, 59, 122, 0.15);
+            background-color: #fff;
         }
         
         .select-wrapper {
@@ -198,39 +212,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-family: 'Font Awesome 5 Free';
             font-weight: 900;
             position: absolute;
-            top: 38px;
+            top: 42px;
             right: 15px;
-            color: #adb5bd;
+            color: #6c757d;
             pointer-events: none;
         }
         
         .btn-register {
-            background-color: var(--primary-color);
+            background: linear-gradient(to right, #003b7a, #0056b3);
             color: white;
             border: none;
             border-radius: 8px;
-            padding: 12px 20px;
+            padding: 14px 20px;
             font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.3s ease;
             display: flex;
             align-items: center;
             justify-content: center;
+            box-shadow: 0 4px 6px rgba(0, 59, 122, 0.2);
         }
         
         .btn-register i {
-            margin-right: 8px;
+            margin-right: 10px;
         }
         
         .btn-register:hover {
-            background-color: var(--secondary-color);
+            background: linear-gradient(to right, #00326a, #004a9e);
+            box-shadow: 0 6px 8px rgba(0, 59, 122, 0.25);
+            transform: translateY(-1px);
         }
         
         .login-link {
             color: var(--primary-color);
             text-decoration: none;
-            font-size: 0.9rem;
+            font-size: 0.95rem;
+            font-weight: 500;
             transition: color 0.2s ease;
         }
         
@@ -240,26 +258,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         .alert {
-            padding: 12px 15px;
-            margin-bottom: 20px;
+            padding: 14px 15px;
+            margin-bottom: 25px;
             border-radius: 8px;
-            border: none;
             display: flex;
             align-items: center;
         }
         
         .alert i {
             margin-right: 10px;
+            font-size: 1.1rem;
         }
         
         .alert-danger {
             background-color: #feebed;
             color: #d63031;
+            border-left: 4px solid #d63031;
         }
         
         .alert-success {
             background-color: #e7f9ed;
             color: #27ae60;
+            border-left: 4px solid #27ae60;
+        }
+        
+        .form-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 30px;
         }
         
         @media (max-width: 576px) {
@@ -270,20 +297,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             .card-body {
                 padding: 20px;
             }
+            
+            .form-footer {
+                flex-direction: column-reverse;
+                gap: 15px;
+            }
+            
+            .btn-register {
+                width: 100%;
+            }
         }
     </style>
 </head>
 <body>
     <div class="register-container">
         <div class="logo-container">
-            <div class="logo-circle">
-                <i class="fas fa-user-plus"></i>
-            </div>
+            <img src="assets/65x45.png" alt="Oral Plus" class="logo">
         </div>
         
         <div class="card">
             <div class="card-header">
                 <h3>Registro de Usuario</h3>
+                <div class="system-name">Sistema de Aprobación de Facturas</div>
             </div>
             
             <div class="card-body">
@@ -337,14 +372,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="select-wrapper">
                             <select id="role" name="role" class="select-field" required>
                                 <option value="" selected disabled>Seleccione un rol</option>
-                                <option value="subgerente">Subgerente</option>
                                 <option value="gerente">Gerente</option>
+                                <option value="subgerente">Subgerente</option>
                                 <option value="contador">Contador</option>
+                                <option value="Preparador">Preparador</option>
+                                <option value="verificador">Verificador</option>
+
                             </select>
                         </div>
                     </div>
                     
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 25px;">
+                    <div class="form-footer">
                         <a href="login.php" class="login-link">¿Ya tiene una cuenta? Inicie sesión</a>
                         <button type="submit" class="btn-register">
                             <i class="fas fa-user-plus"></i> Registrarse

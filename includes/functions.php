@@ -2,132 +2,295 @@
 // User functions
 function getUserById($id) {
     $conn = getDbConnection();
-    $stmt = $conn->prepare("SELECT * FROM users WHERE id = :id");
-    $stmt->bindParam(':id', $id);
-    $stmt->execute();
-    return $stmt->fetch();
+    $sql = "SELECT * FROM users WHERE id = ?";
+    $params = array($id);
+    
+    // Si usamos sqlsrv nativo
+    if (!($conn instanceof PDO)) {
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
+        }
+        $result = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+        sqlsrv_free_stmt($stmt);
+        return $result ?: false;
+    } 
+    // Si usamos PDO
+    else {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
 }
 
 function getUserByEmail($email) {
     $conn = getDbConnection();
-    $stmt = $conn->prepare("SELECT * FROM users WHERE email = :email");
-    $stmt->bindParam(':email', $email);
-    $stmt->execute();
-    return $stmt->fetch();
+    $sql = "SELECT * FROM users WHERE email = ?";
+    $params = array($email);
+    
+    if (!($conn instanceof PDO)) {
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
+        }
+        $result = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+        sqlsrv_free_stmt($stmt);
+        return $result ?: false;
+    } else {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
 }
 
 function emailExists($email) {
     $conn = getDbConnection();
-    $stmt = $conn->prepare("SELECT COUNT(*) FROM users WHERE email = :email");
-    $stmt->bindParam(':email', $email);
-    $stmt->execute();
-    return $stmt->fetchColumn() > 0;
+    $sql = "SELECT COUNT(*) AS count FROM users WHERE email = ?";
+    $params = array($email);
+    
+    if (!($conn instanceof PDO)) {
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
+        }
+        $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+        sqlsrv_free_stmt($stmt);
+        return ($row['count'] > 0);
+    } else {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($params);
+        return (int)$stmt->fetchColumn() > 0;
+    }
 }
 
 function createUser($name, $email, $password, $role) {
     $conn = getDbConnection();
-    $stmt = $conn->prepare("INSERT INTO users (name, email, password, role) VALUES (:name, :email, :password, :role)");
-    $stmt->bindParam(':name', $name);
-    $stmt->bindParam(':email', $email);
-    $stmt->bindParam(':password', $password);
-    $stmt->bindParam(':role', $role);
-    return $stmt->execute();
+    $sql = "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)";
+    $params = array($name, $email, $password, $role);
+    
+    if (!($conn instanceof PDO)) {
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error al insertar: " . print_r(sqlsrv_errors(), true));
+        }
+        sqlsrv_free_stmt($stmt);
+        return true;
+    } else {
+        $stmt = $conn->prepare($sql);
+        return $stmt->execute($params);
+    }
 }
 
 // Invoice functions
-function getFilteredInvoices($date = '', $status = '', $supplier = '') {
+// Invoice functions
+function getFilteredInvoices($date_filter = '', $status_filter = '', $supplier_filter = '', $invoice_id_filter = '', $overdue_days_filter = '', $ok_filter = false) {
     $conn = getDbConnection();
     
-    $sql = "SELECT * FROM invoices WHERE 1=1";
+    $where = [];
     $params = [];
     
-    if (!empty($date)) {
-        $sql .= " AND date = :date";
-        $params[':date'] = $date;
+    // Filtro base para facturas pendientes (solo si no estamos buscando las OK)
+    if (!$ok_filter) {
+        $where[] = "ESTADOSAP = 'O'";
     }
     
-    if (!empty($status)) {
-        $sql .= " AND status = :status";
-        $params[':status'] = $status;
+    if ($ok_filter) {
+        $where[] = "ok = 'ok'";
+    } else {
+        $where[] = "(ok IS NULL OR ok != 'ok')";
     }
     
-    if (!empty($supplier)) {
-        $sql .= " AND supplier_name LIKE :supplier";
-        $params[':supplier'] = "%$supplier%";
+    if (!empty($date_filter)) {
+        $where[] = "CONVERT(date, fecha_vencimiento) = ?";
+        $params[] = $date_filter;
     }
     
-    $sql .= " ORDER BY id DESC";
-    
-    $stmt = $conn->prepare($sql);
-    foreach ($params as $key => $value) {
-        $stmt->bindValue($key, $value);
+    if (!empty($status_filter)) {
+        $where[] = "status = ?";
+        $params[] = $status_filter;
     }
     
-    $stmt->execute();
-    return $stmt->fetchAll();
+    if (!empty($supplier_filter)) {
+        $where[] = "nombre LIKE ?";
+        $params[] = '%' . $supplier_filter . '%';
+    }
+    
+    if (!empty($invoice_id_filter)) {
+        $where[] = "docnum_interno_sap = ?";
+        $params[] = $invoice_id_filter;
+    }
+    
+    if (!empty($overdue_days_filter)) {
+        $where[] = "dias_de_vencido = ?";
+        $params[] = $overdue_days_filter;
+    }
+    
+    $sql = "SELECT * FROM invoices";
+    
+    if (!empty($where)) {
+        $sql .= " WHERE " . implode(" AND ", $where);
+    }
+    
+    if ($conn instanceof PDO) {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
+        }
+        
+        $invoices = [];
+        while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+            $invoices[] = $row;
+        }
+        sqlsrv_free_stmt($stmt);
+        return $invoices;
+    }
 }
 
 function getInvoiceById($id) {
     $conn = getDbConnection();
-    $stmt = $conn->prepare("SELECT * FROM invoices WHERE id = :id");
-    $stmt->bindParam(':id', $id);
-    $stmt->execute();
-    return $stmt->fetch();
+    $sql = "SELECT * FROM invoices WHERE docnum_interno_sap = ?";
+    $params = array($id);
+    
+    if (!($conn instanceof PDO)) {
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
+        }
+        $result = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+        sqlsrv_free_stmt($stmt);
+        return $result ?: false;
+    } else {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
 }
 
 function getInvoiceItems($invoice_id) {
     $conn = getDbConnection();
-    $stmt = $conn->prepare("SELECT * FROM invoice_items WHERE invoice_id = :invoice_id");
-    $stmt->bindParam(':invoice_id', $invoice_id);
-    $stmt->execute();
-    return $stmt->fetchAll();
+    $sql = "SELECT * FROM invoice_items WHERE docnum_interno_sap = ?";
+    $params = array($invoice_id);
+    
+    if (!($conn instanceof PDO)) {
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
+        }
+        $results = array();
+        while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+            $results[] = $row;
+        }
+        sqlsrv_free_stmt($stmt);
+        return $results;
+    } else {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
 
 function getInvoiceApprovals($invoice_id) {
     $conn = getDbConnection();
-    $stmt = $conn->prepare("
+    $sql = "
         SELECT a.*, u.name as user_name, u.role as user_role
         FROM invoice_approvals a
         JOIN users u ON a.user_id = u.id
-        WHERE a.invoice_id = :invoice_id
+        WHERE a.invoice_id = ?
         ORDER BY a.created_at ASC
-    ");
-    $stmt->bindParam(':invoice_id', $invoice_id);
-    $stmt->execute();
-    return $stmt->fetchAll();
+    ";
+    $params = array($invoice_id);
+    
+    if (!($conn instanceof PDO)) {
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
+        }
+        $results = array();
+        while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+            $results[] = $row;
+        }
+        sqlsrv_free_stmt($stmt);
+        return $results;
+    } else {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
 
 function markInvoiceAsViewed($invoice_id, $user_id) {
     $conn = getDbConnection();
     
     // Check if already viewed
-    $stmt = $conn->prepare("SELECT COUNT(*) FROM invoice_views WHERE invoice_id = :invoice_id AND user_id = :user_id");
-    $stmt->bindParam(':invoice_id', $invoice_id);
-    $stmt->bindParam(':user_id', $user_id);
-    $stmt->execute();
+    $sql_check = "SELECT COUNT(*) AS count FROM invoice_views WHERE invoice_id = ? AND user_id = ?";
+    $params = array($invoice_id, $user_id);
     
-    if ($stmt->fetchColumn() == 0) {
-        // Insert new view record
-        $stmt = $conn->prepare("INSERT INTO invoice_views (invoice_id, user_id) VALUES (:invoice_id, :user_id)");
-        $stmt->bindParam(':invoice_id', $invoice_id);
-        $stmt->bindParam(':user_id', $user_id);
-        $stmt->execute();
+    if (!($conn instanceof PDO)) {
+        $stmt = sqlsrv_query($conn, $sql_check, $params);
+        if ($stmt === false) {
+            throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
+        }
+        $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+        sqlsrv_free_stmt($stmt);
+        
+        if ($row['count'] == 0) {
+            // Insert new view record
+            $sql_insert = "INSERT INTO invoice_views (invoice_id, user_id) VALUES (?, ?)";
+            $stmt = sqlsrv_query($conn, $sql_insert, $params);
+            if ($stmt === false) {
+                throw new Exception("Error al insertar: " . print_r(sqlsrv_errors(), true));
+            }
+            sqlsrv_free_stmt($stmt);
+        } else {
+            // Update view timestamp
+            $sql_update = "UPDATE invoice_views SET viewed_at = GETDATE() WHERE invoice_id = ? AND user_id = ?";
+            $stmt = sqlsrv_query($conn, $sql_update, $params);
+            if ($stmt === false) {
+                throw new Exception("Error al actualizar: " . print_r(sqlsrv_errors(), true));
+            }
+            sqlsrv_free_stmt($stmt);
+        }
     } else {
-        // Update view timestamp
-        $stmt = $conn->prepare("UPDATE invoice_views SET viewed_at = CURRENT_TIMESTAMP WHERE invoice_id = :invoice_id AND user_id = :user_id");
-        $stmt->bindParam(':invoice_id', $invoice_id);
-        $stmt->bindParam(':user_id', $user_id);
-        $stmt->execute();
+        $stmt = $conn->prepare($sql_check);
+        $stmt->execute($params);
+        $count = (int)$stmt->fetchColumn();
+        
+        if ($count == 0) {
+            // Insert new view record
+            $sql_insert = "INSERT INTO invoice_views (invoice_id, user_id) VALUES (?, ?)";
+            $stmt = $conn->prepare($sql_insert);
+            $stmt->execute($params);
+        } else {
+            // Update view timestamp
+            $sql_update = "UPDATE invoice_views SET viewed_at = GETDATE() WHERE invoice_id = ? AND user_id = ?";
+            $stmt = $conn->prepare($sql_update);
+            $stmt->execute($params);
+        }
     }
 }
 
 function hasViewedInvoice($invoice_id, $user_id) {
     $conn = getDbConnection();
-    $stmt = $conn->prepare("SELECT COUNT(*) FROM invoice_views WHERE invoice_id = :invoice_id AND user_id = :user_id");
-    $stmt->bindParam(':invoice_id', $invoice_id);
-    $stmt->bindParam(':user_id', $user_id);
-    $stmt->execute();
-    return $stmt->fetchColumn() > 0;
+    $sql = "SELECT COUNT(*) AS count FROM invoice_views WHERE invoice_id = ? AND user_id = ?";
+    $params = array($invoice_id, $user_id);
+    
+    if (!($conn instanceof PDO)) {
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
+        }
+        $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+        sqlsrv_free_stmt($stmt);
+        return $row['count'] > 0;
+    } else {
+        $stmt = $conn->prepare($sql);
+        $stmt->execute($params);
+        return (int)$stmt->fetchColumn() > 0;
+    }
 }
 
 function addInvoice($invoice_number, $date, $supplier_name, $nit, $amount, $description, $file_path, $sap_code, $purchase_order, $cost_center, $payment_method, $bank_account, $due_date, $payment_terms, $user_id) {
@@ -137,141 +300,276 @@ function addInvoice($invoice_number, $date, $supplier_name, $nit, $amount, $desc
     $subtotal = $amount / 1.19; // Assuming 19% tax
     $tax = $amount - $subtotal;
     
-    $stmt = $conn->prepare("
+    $sql = "
         INSERT INTO invoices (
             invoice_number, date, supplier_name, nit, amount, subtotal, tax,
             description, file_path, sap_code, purchase_order, cost_center,
             payment_method, bank_account, due_date, payment_terms, created_by
         ) VALUES (
-            :invoice_number, :date, :supplier_name, :nit, :amount, :subtotal, :tax,
-            :description, :file_path, :sap_code, :purchase_order, :cost_center,
-            :payment_method, :bank_account, :due_date, :payment_terms, :created_by
+            ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?
         )
-    ");
+    ";
     
-    $stmt->bindParam(':invoice_number', $invoice_number);
-    $stmt->bindParam(':date', $date);
-    $stmt->bindParam(':supplier_name', $supplier_name);
-    $stmt->bindParam(':nit', $nit);
-    $stmt->bindParam(':amount', $amount);
-    $stmt->bindParam(':subtotal', $subtotal);
-    $stmt->bindParam(':tax', $tax);
-    $stmt->bindParam(':description', $description);
-    $stmt->bindParam(':file_path', $file_path);
-    $stmt->bindParam(':sap_code', $sap_code);
-    $stmt->bindParam(':purchase_order', $purchase_order);
-    $stmt->bindParam(':cost_center', $cost_center);
-    $stmt->bindParam(':payment_method', $payment_method);
-    $stmt->bindParam(':bank_account', $bank_account);
-    $stmt->bindParam(':due_date', $due_date);
-    $stmt->bindParam(':payment_terms', $payment_terms);
-    $stmt->bindParam(':created_by', $user_id);
+    $params = array(
+        $invoice_number, $date, $supplier_name, $nit, $amount, $subtotal, $tax,
+        $description, $file_path, $sap_code, $purchase_order, $cost_center,
+        $payment_method, $bank_account, $due_date, $payment_terms, $user_id
+    );
     
-    if ($stmt->execute()) {
-        return $conn->lastInsertId();
+    if (!($conn instanceof PDO)) {
+        // Usar SCOPE_IDENTITY() para SQL Server
+        sqlsrv_query($conn, "SET NOCOUNT ON"); // Para asegurar que SCOPE_IDENTITY() funcione correctamente
+        
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error al insertar: " . print_r(sqlsrv_errors(), true));
+        }
+        sqlsrv_free_stmt($stmt);
+        
+        // Obtener el último ID insertado
+        $stmt = sqlsrv_query($conn, "SELECT SCOPE_IDENTITY() AS id");
+        if ($stmt === false) {
+            throw new Exception("Error al obtener ID: " . print_r(sqlsrv_errors(), true));
+        }
+        
+        if ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+            $last_id = $row['id'];
+            sqlsrv_free_stmt($stmt);
+            return $last_id;
+        }
+        
+        return false;
+    } else {
+        try {
+            $stmt = $conn->prepare($sql);
+            if ($stmt->execute($params)) {
+                return $conn->lastInsertId();
+            }
+            return false;
+        } catch (PDOException $e) {
+            throw new Exception("Error PDO: " . $e->getMessage());
+        }
     }
-    
-    return false;
 }
 
 function addInvoiceItem($invoice_id, $concept, $description, $quantity, $unit_price, $total) {
     $conn = getDbConnection();
-    $stmt = $conn->prepare("
+    
+    $sql = "
         INSERT INTO invoice_items (invoice_id, concept, description, quantity, unit_price, total)
-        VALUES (:invoice_id, :concept, :description, :quantity, :unit_price, :total)
-    ");
+        VALUES (?, ?, ?, ?, ?, ?)
+    ";
     
-    $stmt->bindParam(':invoice_id', $invoice_id);
-    $stmt->bindParam(':concept', $concept);
-    $stmt->bindParam(':description', $description);
-    $stmt->bindParam(':quantity', $quantity);
-    $stmt->bindParam(':unit_price', $unit_price);
-    $stmt->bindParam(':total', $total);
+    $params = array($invoice_id, $concept, $description, $quantity, $unit_price, $total);
     
-    return $stmt->execute();
+    if (!($conn instanceof PDO)) {
+        $stmt = sqlsrv_query($conn, $sql, $params);
+        if ($stmt === false) {
+            throw new Exception("Error al insertar: " . print_r(sqlsrv_errors(), true));
+        }
+        sqlsrv_free_stmt($stmt);
+        return true;
+    } else {
+        $stmt = $conn->prepare($sql);
+        return $stmt->execute($params);
+    }
 }
 
 function approveInvoice($invoice_id, $user_id, $role, $comments = '') {
     $conn = getDbConnection();
 
     try {
-        $conn->beginTransaction();
+        if (!($conn instanceof PDO)) {
+            // Iniciar transacción con sqlsrv
+            if (sqlsrv_begin_transaction($conn) === false) {
+                throw new Exception("Error al iniciar transacción: " . print_r(sqlsrv_errors(), true));
+            }
 
-        // Registrar la aprobación del rol actual
-        $stmt = $conn->prepare("
-            INSERT INTO invoice_approvals (invoice_id, user_id, user_role, action, comments)
-            VALUES (:invoice_id, :user_id, :user_role, 'approve', :comments)
-        ");
-        $stmt->bindParam(':invoice_id', $invoice_id);
-        $stmt->bindParam(':user_id', $user_id);
-        $stmt->bindParam(':user_role', $role);
-        $stmt->bindParam(':comments', $comments);
-        $stmt->execute();
+            // Registrar la aprobación del rol actual
+            $sql_insert = "
+                INSERT INTO invoice_approvals (invoice_id, user_id, user_role, action, comments)
+                VALUES (?, ?, ?, 'approve', ?)
+            ";
+            $params_insert = array($invoice_id, $user_id, $role, $comments);
+            
+            $stmt = sqlsrv_query($conn, $sql_insert, $params_insert);
+            if ($stmt === false) {
+                sqlsrv_rollback($conn);
+                throw new Exception("Error al insertar aprobación: " . print_r(sqlsrv_errors(), true));
+            }
+            sqlsrv_free_stmt($stmt);
 
-        // Verificar si ya existe una aprobación de cada uno de los 3 roles
-        $stmt = $conn->prepare("
-            SELECT DISTINCT user_role FROM invoice_approvals
-            WHERE invoice_id = :invoice_id AND action = 'approve'
-        ");
-        $stmt->bindParam(':invoice_id', $invoice_id);
-        $stmt->execute();
-        $roles_approved = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            // Verificar si ya existe una aprobación de cada uno de los 3 roles
+            $sql_check = "
+                SELECT DISTINCT user_role FROM invoice_approvals
+                WHERE invoice_id = ? AND action = 'approve'
+            ";
+            $params_check = array($invoice_id);
+            
+            $stmt = sqlsrv_query($conn, $sql_check, $params_check);
+            if ($stmt === false) {
+                sqlsrv_rollback($conn);
+                throw new Exception("Error al verificar aprobaciones: " . print_r(sqlsrv_errors(), true));
+            }
+            
+            $roles_approved = array();
+            while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $roles_approved[] = $row['user_role'];
+            }
+            sqlsrv_free_stmt($stmt);
 
-        // Si los tres roles han aprobado, marcar como completado
-        $required_roles = ['subgerente', 'gerente', 'contador'];
-        if (count(array_intersect($required_roles, $roles_approved)) === 3) {
-            $stmt = $conn->prepare("UPDATE invoices SET status = 'completado' WHERE id = :invoice_id");
-            $stmt->bindParam(':invoice_id', $invoice_id);
-            $stmt->execute();
-        } else {
-            // Si no está completado aún, poner el estado como 'en proceso'
-            $stmt = $conn->prepare("UPDATE invoices SET status = 'en_proceso' WHERE id = :invoice_id");
-            $stmt->bindParam(':invoice_id', $invoice_id);
-            $stmt->execute();
+            // Si los tres roles han aprobado, marcar como completado
+            $required_roles = array('subgerente', 'gerente', 'contador');
+            $roles_intersection = array_intersect($required_roles, $roles_approved);
+            
+            if (count($roles_intersection) === 3) {
+                $sql_update = "UPDATE invoices SET status = 'completado' WHERE id = ?";
+            } else {
+                // Si no está completado aún, poner el estado como 'en proceso'
+                $sql_update = "UPDATE invoices SET status = 'en_proceso' WHERE id = ?";
+            }
+            
+            $params_update = array($invoice_id);
+            $stmt = sqlsrv_query($conn, $sql_update, $params_update);
+            if ($stmt === false) {
+                sqlsrv_rollback($conn);
+                throw new Exception("Error al actualizar estado: " . print_r(sqlsrv_errors(), true));
+            }
+            sqlsrv_free_stmt($stmt);
+
+            // Commit transaction
+            if (sqlsrv_commit($conn) === false) {
+                throw new Exception("Error al confirmar transacción: " . print_r(sqlsrv_errors(), true));
+            }
+            
+            return true;
+        } 
+        // Usar PDO
+        else {
+            $conn->beginTransaction();
+
+            // Registrar la aprobación del rol actual
+            $sql_insert = "
+                INSERT INTO invoice_approvals (invoice_id, user_id, user_role, action, comments)
+                VALUES (?, ?, ?, 'approve', ?)
+            ";
+            $params_insert = array($invoice_id, $user_id, $role, $comments);
+            
+            $stmt = $conn->prepare($sql_insert);
+            $stmt->execute($params_insert);
+
+            // Verificar si ya existe una aprobación de cada uno de los 3 roles
+            $sql_check = "
+                SELECT DISTINCT user_role FROM invoice_approvals
+                WHERE invoice_id = ? AND action = 'approve'
+            ";
+            $stmt = $conn->prepare($sql_check);
+            $stmt->execute(array($invoice_id));
+            $roles_approved = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Si los tres roles han aprobado, marcar como completado
+            $required_roles = array('subgerente', 'gerente', 'contador');
+            if (count(array_intersect($required_roles, $roles_approved)) === 3) {
+                $sql_update = "UPDATE invoices SET status = 'completado' WHERE id = ?";
+            } else {
+                // Si no está completado aún, poner el estado como 'en proceso'
+                $sql_update = "UPDATE invoices SET status = 'en_proceso' WHERE id = ?";
+            }
+            
+            $stmt = $conn->prepare($sql_update);
+            $stmt->execute(array($invoice_id));
+
+            $conn->commit();
+            return true;
         }
-
-        $conn->commit();
-        return true;
-
     } catch (Exception $e) {
-        $conn->rollBack();
+        // Rollback en caso de PDO
+        if ($conn instanceof PDO && $conn->inTransaction()) {
+            $conn->rollBack();
+        }
+        // En caso de sqlsrv, el rollback ya se ha manejado en los bloques internos
+        
         error_log("Error al aprobar factura: " . $e->getMessage());
         return false;
     }
 }
 
-
 function rejectInvoice($invoice_id, $user_id, $role, $comments = '') {
     $conn = getDbConnection();
     
     try {
-        $conn->beginTransaction();
-        
-        // Update invoice status to rejected
-        $status = 'rechazado';
-        $stmt = $conn->prepare("UPDATE invoices SET status = :status WHERE id = :invoice_id");
-        $stmt->bindParam(':status', $status);
-        $stmt->bindParam(':invoice_id', $invoice_id);
-        $stmt->execute();
-        
-        // Record rejection action
-        $action = 'reject';
-        $stmt = $conn->prepare("
-            INSERT INTO invoice_approvals (invoice_id, user_id, user_role, action, comments)
-            VALUES (:invoice_id, :user_id, :user_role, :action, :comments)
-        ");
-        
-        $stmt->bindParam(':invoice_id', $invoice_id);
-        $stmt->bindParam(':user_id', $user_id);
-        $stmt->bindParam(':user_role', $role);
-        $stmt->bindParam(':action', $action);
-        $stmt->bindParam(':comments', $comments);
-        $stmt->execute();
-        
-        $conn->commit();
-        return true;
+        if (!($conn instanceof PDO)) {
+            // Iniciar transacción con sqlsrv
+            if (sqlsrv_begin_transaction($conn) === false) {
+                throw new Exception("Error al iniciar transacción: " . print_r(sqlsrv_errors(), true));
+            }
+            
+            // Update invoice status to rejected
+            $status = 'rechazado';
+            $sql_update = "UPDATE invoices SET status = ? WHERE id = ?";
+            $params_update = array($status, $invoice_id);
+            
+            $stmt = sqlsrv_query($conn, $sql_update, $params_update);
+            if ($stmt === false) {
+                sqlsrv_rollback($conn);
+                throw new Exception("Error al actualizar estado: " . print_r(sqlsrv_errors(), true));
+            }
+            sqlsrv_free_stmt($stmt);
+            
+            // Record rejection action
+            $action = 'reject';
+            $sql_insert = "
+                INSERT INTO invoice_approvals (invoice_id, user_id, user_role, action, comments)
+                VALUES (?, ?, ?, ?, ?)
+            ";
+            $params_insert = array($invoice_id, $user_id, $role, $action, $comments);
+            
+            $stmt = sqlsrv_query($conn, $sql_insert, $params_insert);
+            if ($stmt === false) {
+                sqlsrv_rollback($conn);
+                throw new Exception("Error al insertar rechazo: " . print_r(sqlsrv_errors(), true));
+            }
+            sqlsrv_free_stmt($stmt);
+            
+            // Commit transaction
+            if (sqlsrv_commit($conn) === false) {
+                throw new Exception("Error al confirmar transacción: " . print_r(sqlsrv_errors(), true));
+            }
+            
+            return true;
+        } 
+        // Usar PDO
+        else {
+            $conn->beginTransaction();
+            
+            // Update invoice status to rejected
+            $status = 'rechazado';
+            $sql_update = "UPDATE invoices SET status = ? WHERE id = ?";
+            $stmt = $conn->prepare($sql_update);
+            $stmt->execute(array($status, $invoice_id));
+            
+            // Record rejection action
+            $action = 'reject';
+            $sql_insert = "
+                INSERT INTO invoice_approvals (invoice_id, user_id, user_role, action, comments)
+                VALUES (?, ?, ?, ?, ?)
+            ";
+            $stmt = $conn->prepare($sql_insert);
+            $stmt->execute(array($invoice_id, $user_id, $role, $action, $comments));
+            
+            $conn->commit();
+            return true;
+        }
     } catch (Exception $e) {
-        $conn->rollBack();
+        // Rollback en caso de PDO
+        if ($conn instanceof PDO && $conn->inTransaction()) {
+            $conn->rollBack();
+        }
+        // En caso de sqlsrv, el rollback ya se ha manejado en los bloques internos
+        
+        error_log("Error al rechazar factura: " . $e->getMessage());
         return false;
     }
 }
@@ -301,13 +599,34 @@ function canRejectInvoice($role, $status) {
 
 // Helper functions
 function formatDate($date) {
-    return date('d/m/Y', strtotime($date));
+    if (empty($date)) return 'N/A';
+    
+    if ($date instanceof DateTime) {
+        return $date->format('d/m/Y');
+    }
+    
+    $dateObj = DateTime::createFromFormat('Y-m-d', $date);
+    if ($dateObj) {
+        return $dateObj->format('d/m/Y');
+    }
+    
+    return $date;
 }
 
 function formatDateTime($datetime) {
-    return date('d/m/Y H:i', strtotime($datetime));
+    if (empty($datetime)) return 'N/A';
+    
+    if ($datetime instanceof DateTime) {
+        return $datetime->format('d/m/Y H:i:s');
+    }
+    
+    $dateObj = DateTime::createFromFormat('Y-m-d H:i:s', $datetime);
+    if ($dateObj) {
+        return $dateObj->format('d/m/Y H:i:s');
+    }
+    
+    return $datetime;
 }
-
 function getStatusLabel($status) {
     switch ($status) {
         case 'pendiente':
@@ -343,6 +662,37 @@ function getStatusBadgeClass($status) {
             return 'bg-danger';
         default:
             return 'bg-secondary';
+    }
+}
+
+// Definir getDbConnection() solo si no existe ya
+if (!function_exists('getDbConnection')) {
+    function getDbConnection() {
+        $connectionInfo = array(
+            "Database" => DB_NAME,
+            "UID" => DB_USER,
+            "PWD" => DB_PASS
+        );
+        
+        // Intentar usar sqlsrv si está disponible
+        if (function_exists('sqlsrv_connect')) {
+            $conn = sqlsrv_connect(DB_HOST, $connectionInfo);
+            
+            if ($conn === false) {
+                throw new Exception("Error de conexión: " . print_r(sqlsrv_errors(), true));
+            }
+            
+            return $conn;
+        } else {
+            // Si sqlsrv no está disponible, usar PDO
+            try {
+                $conn = new PDO("sqlsrv:Server=" . DB_HOST . ";Database=" . DB_NAME, DB_USER, DB_PASS);
+                $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                return $conn;
+            } catch (PDOException $e) {
+                throw new Exception("Error de conexión PDO: " . $e->getMessage());
+            }
+        }
     }
 }
 ?>

@@ -15,12 +15,12 @@ $user = getUserById($user_id);
 $role = $user['role'];
 
 // Verificar si se proporcionó ID de factura
-if (!isset($_GET['id']) || empty($_GET['id'])) {
+if (!isset($_GET['docnum_interno_sap']) || empty($_GET['docnum_interno_sap'])) {
     header("Location: index.php");
     exit();
 }
 
-$invoice_id = $_GET['id'];
+$invoice_id = $_GET['docnum_interno_sap'];
 $invoice = getInvoiceById($invoice_id);
 
 // Verificar si la factura existe
@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if ($result) {
         $_SESSION['success_message'] = "Factura aprobada correctamente.";
-        header("Location: view_invoice.php?id=$invoice_id");
+        header("Location: view_invoice.php?docnum_interno_sap=$invoice_id");
         exit();
     } else {
         $error = 'Error al aprobar la factura';
@@ -69,8 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
                 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-                    <h1 class="h2">Aprobar Factura #<?php echo $invoice['id']; ?></h1>
-                    <a href="view_invoice.php?id=<?php echo $invoice_id; ?>" class="btn btn-outline-primary">
+                    <h1 class="h2">Aprobar Factura #<?php echo $invoice['docnum_interno_sap']; ?></h1>
+                    <a href="view_invoice.php?docnum_interno_sap=<?php echo $invoice_id; ?>" class="btn btn-outline-primary">
                         <i class="fas fa-arrow-left me-1"></i> Volver
                     </a>
                 </div>
@@ -101,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     </tr>
                                     <tr>
                                         <th>Proveedor:</th>
-                                        <td><?php echo $invoice['supplier_name']; ?></td>
+                                        <td><?php echo $invoice['nombre']; ?></td>
                                     </tr>
                                     <tr>
                                         <th>NIT:</th>
@@ -147,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         <button type="submit" class="btn btn-success">
                                             <i class="fas fa-check me-1"></i> Aprobar Factura
                                         </button>
-                                        <a href="view_invoice.php?id=<?php echo $invoice_id; ?>" class="btn btn-outline-secondary">
+                                        <a href="view_invoice.php?docnum_interno_sap=<?php echo $invoice_id; ?>" class="btn btn-outline-secondary">
                                             Cancelar
                                         </a>
                                     </div>

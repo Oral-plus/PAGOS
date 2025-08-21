@@ -3,7 +3,7 @@
 
 // Configuración para SQL Server
 define('DB_HOST', '192.168.2.244');
-define('DB_NAME', 'invoice_approval_system');
+define('DB_NAME', 'RBOSKY3');
 define('DB_USER', 'sa');
 define('DB_PASS', 'Sky2022*!');
 
@@ -12,7 +12,7 @@ define('DB_PORT', 1433); // Puerto predeterminado de SQL Server
 define('DB_CHARSET', 'UTF-8');
 
 // Función para obtener la conexión a la base de datos
-function getDbConnection() {
+function getDbConnection1() {
     $connectionInfo = array(
         "Database" => DB_NAME,
         "UID" => DB_USER,
@@ -50,9 +50,9 @@ function getDbConnection() {
 }
 
 // Función para verificar la conexión
-function testDatabaseConnection() {
+function testDatabaseConnection1() {
     try {
-        $conn = getDbConnection();
+        $conn = getDbConnection1();
         
         // Ejecutar una consulta simple para verificar la conexión
         if ($conn instanceof PDO) {

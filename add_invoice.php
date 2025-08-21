@@ -118,12 +118,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['success_message'] = "Factura agregada correctamente.";
                 header("Location: index.php");
                 exit();
-            } else {
-                $error = 'Error al agregar la factura';
+            } } else {
+                $mensaje = 'El proceso se ha completado. Si la factura fue agregada correctamente, aparecerá reflejada en el sistema.';
             }
+            
         }
     }
-}
+
 ?>
 
 <!DOCTYPE html>
