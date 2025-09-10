@@ -1190,12 +1190,8 @@ function formatDate1($date) {
             <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
                 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
                     <h1 class="h2">Panel de Control - Sistema Corregido</h1>
-                    <?php if (in_array($role, ['admin'])): ?>
-                        <div class="btn-toolbar mb-2 mb-md-0">
-                            <a href="add_invoice.php" class="btn btn-primary">
-                                <i class="fas fa-plus"></i> Nueva Factura
-                            </a>
-                        </div>
+                    <?php if (in_array($role, ['admin','Preparador'])): ?>
+                      
                         <a href="export_excel.php" class="btn btn-success">
                             <i class="fas fa-file-excel me-2"></i> Exportar a Excel
                         </a>
@@ -1406,6 +1402,7 @@ function formatDate1($date) {
                                             <tr>
                                                 <th></th>
                                                 <th>ID</th>
+                                                <th>Numero factura</th>
                                                 <th>Código</th>
                                                 <th>Proveedor <i class="fas fa-sort-alpha-down text-primary" title="Ordenado alfabéticamente"></i></th>
                                                 <th>Fecha Vencimiento</th>
@@ -1464,6 +1461,7 @@ function formatDate1($date) {
                                                                 <input type="checkbox" class="form-check-input invoice-checkbox" id="check_<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>">
                                                             </div>
                                                         </td>
+                                                        <td><?php echo htmlspecialchars($invoice['numero_factura_proveedor']); ?></td>
                                                         <td><?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?></td>
                                                         <td><?php echo htmlspecialchars($invoice['codigo_sn']); ?></td>
                                                         <td><?php echo htmlspecialchars($invoice['nombre']); ?></td>
@@ -1520,138 +1518,156 @@ function formatDate1($date) {
                     
                     <!-- Tabla de Facturas Marcadas como OK -->
                     <div class="tab-pane fade" id="ok-invoices" role="tabpanel" aria-labelledby="ok-tab">
-                        <div class="card shadow-sm">
-                            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-                                <h5 class="mb-0">
-                                    Facturas Marcadas como OK - Cálculo Corregido
-                                    <span class="badge bg-light text-dark ms-2">
-                                        <i class="fas fa-sort-alpha-down me-1"></i>Ordenadas por proveedor
-                                    </span>
-                                </h5>
-                                <div id="ok-results-count" class="text-white"></div>
-                            </div>
-                            <div class="card-body position-relative">
-                                <div class="loading-overlay" id="ok-loading">
-                                    <div class="spinner-border text-success" role="status">
-                                        <span class="visually-hidden">Cargando...</span>
-                                    </div>
-                                </div>
+    <div class="card shadow-sm">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                Facturas Marcadas como OK - Cálculo Corregido
+                <span class="badge bg-light text-dark ms-2">
+                    <i class="fas fa-sort-alpha-down me-1"></i>Ordenadas por proveedor
+                </span>
+            </h5>
+            <div id="ok-results-count" class="text-white"></div>
+        </div>
+        <div class="card-body position-relative">
+            <div class="loading-overlay" id="ok-loading">
+                <div class="spinner-border text-success" role="status">
+                    <span class="visually-hidden">Cargando...</span>
+                </div>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th></th>
+                            <th>ID</th>
+                            <th>Numero Factura</th>
+                            <th>Código</th>
+                            <th>Proveedor <i class="fas fa-sort-alpha-down text-success" title="Ordenado alfabéticamente"></i></th>
+                            <th>Fecha Vencimiento</th>
+                            <th>Días vencidos <i class="fas fa-info-circle text-info" title="Negativo=vencida, Positivo=vigente"></i></th>
+                            <th>Valor</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ok-table-body">
+                        <?php if (count($ok_invoices) > 0): ?>
+                            <?php
+                            // 1️⃣ Eliminar facturas duplicadas por docnum_interno_sap
+                            $unique_invoices = [];
+                            foreach ($ok_invoices as $invoice) {
+                                $unique_invoices[$invoice['docnum_interno_sap']] = $invoice;
+                            }
+                            $ok_invoices = array_values($unique_invoices);
+
+                            // 2️⃣ Ordenar por proveedor y días de vencido
+                            usort($ok_invoices, function($a, $b) {
+                                $supplierCompare = strcmp($a['nombre'], $b['nombre']);
+                                if ($supplierCompare === 0) {
+                                    return $a['dias_de_vencido'] <=> $b['dias_de_vencido'];
+                                }
+                                return $supplierCompare;
+                            });
+
+                            $currentOkSupplier = '';
+                            $totalGeneralOk = 0; // 🔹 acumulador del total
+                            $countOk = 0;        // 🔹 acumulador de facturas
+                            ?>
+                            <?php foreach ($ok_invoices as $invoice): ?>
+                                <?php
+                                $currentPriority = isset($invoice['priority']) ? $invoice['priority'] : 'media';
                                 
-                                <div class="table-responsive">
-                                    <table class="table table-striped table-hover">
-                                        <thead class="table-light">
-                                            <tr>
-                                                <th></th>
-                                                <th>ID</th>
-                                                <th>Código</th>
-                                                <th>Proveedor <i class="fas fa-sort-alpha-down text-success" title="Ordenado alfabéticamente"></i></th>
-                                                <th>Fecha Vencimiento</th>
-                                                <th>Días vencidos <i class="fas fa-info-circle text-info" title="Negativo=vencida, Positivo=vigente"></i></th>
-                                                <th>Valor</th>
-                                                <th>Acciones</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="ok-table-body">
-                                            <?php if (count($ok_invoices) > 0): ?>
-                                                <?php
-                                                // 1️⃣ Eliminar facturas duplicadas por docnum_interno_sap
-                                                $unique_invoices = [];
-                                                foreach ($ok_invoices as $invoice) {
-                                                    $unique_invoices[$invoice['docnum_interno_sap']] = $invoice;
-                                                }
-                                                $ok_invoices = array_values($unique_invoices);
+                                if ($currentOkSupplier !== $invoice['nombre'] && empty($supplier_filter)) {
+                                    $currentOkSupplier = $invoice['nombre'];
+                                    $supplierTotal = isset($supplier_totals_ok[$currentOkSupplier]) ? $supplier_totals_ok[$currentOkSupplier] : ['total' => 0, 'count' => 0];
+                                    echo '<tr class="supplier-header">
+                                            <td colspan="8">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <div>
+                                                        <i class="fas fa-building me-2"></i>50l0
+                                                        <strong>' . htmlspecialchars($currentOkSupplier) . '</strong>
+                                                    </div>
+                                                    <div>
+                                                        <span class="supplier-count-badge me-2">
+                                                            <i class="fas fa-check-circle me-1"></i>
+                                                            ' . $supplierTotal['count'] . ' OK
+                                                        </span>
+                                                        <span class="supplier-total-badge">
+                                                            <i class="fas fa-dollar-sign me-1"></i>
+                                                            $' . number_format($supplierTotal['total'], 2, ',', '.') . '
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>';
+                                }
 
-                                                // 2️⃣ Ordenar por proveedor y días de vencido
-                                                usort($ok_invoices, function($a, $b) {
-                                                    $supplierCompare = strcmp($a['nombre'], $b['nombre']);
-                                                    if ($supplierCompare === 0) {
-                                                        return $a['dias_de_vencido'] <=> $b['dias_de_vencido'];
-                                                    }
-                                                    return $supplierCompare;
-                                                });
+                                // Estado de vencimiento
+                                $statusInfo = getDaysStatusAndColor($invoice['dias_de_vencido']);
 
-                                                $currentOkSupplier = '';
-                                                ?>
-                                                <?php foreach ($ok_invoices as $invoice): ?>
-                                                    <?php
-                                                    $currentPriority = isset($invoice['priority']) ? $invoice['priority'] : 'media';
-                                                    
-                                                    if ($currentOkSupplier !== $invoice['nombre'] && empty($supplier_filter)) {
-                                                        $currentOkSupplier = $invoice['nombre'];
-                                                        $supplierTotal = isset($supplier_totals_ok[$currentOkSupplier]) ? $supplier_totals_ok[$currentOkSupplier] : ['total' => 0, 'count' => 0];
-                                                        echo '<tr class="supplier-header">
-                                                                <td colspan="8">
-                                                                    <div class="d-flex justify-content-between align-items-center">
-                                                                        <div>
-                                                                            <i class="fas fa-building me-2"></i>
-                                                                            <strong>' . htmlspecialchars($currentOkSupplier) . '</strong>
-                                                                        </div>
-                                                                        <div>
-                                                                            <span class="supplier-count-badge me-2">
-                                                                                <i class="fas fa-check-circle me-1"></i>
-                                                                                ' . $supplierTotal['count'] . ' OK
-                                                                            </span>
-                                                                            <span class="supplier-total-badge">
-                                                                                <i class="fas fa-dollar-sign me-1"></i>
-                                                                                $' . number_format($supplierTotal['total'], 2, ',', '.') . '
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                </td>
-                                                              </tr>';
-                                                    }
+                                // 🔹 Acumular total general
+                                $totalGeneralOk += $invoice['saldo_pendiente'];
+                                $countOk++;
+                                ?>
+                                <tr data-invoice-id="<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>" 
+                                    data-invoice-value="<?php echo htmlspecialchars($invoice['saldo_pendiente']); ?>" 
+                                    data-invoice-name="<?php echo htmlspecialchars($invoice['nombre']); ?>" 
+                                    class="<?php echo (empty($supplier_filter)) ? 'supplier-group ' . $statusInfo['class'] : $statusInfo['class']; ?>">
+                                    <td>
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input invoice-checkbox-ok" id="check_ok_<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>">
+                                        </div>
+                                    </td>
+                                    <td><?php echo htmlspecialchars($invoice['numero_factura_proveedor']); ?></td>
+                                    <td><?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?></td>
+                                    <td><?php echo htmlspecialchars($invoice['codigo_sn']); ?></td>
+                                    
+                                    <td><?php echo htmlspecialchars($invoice['nombre']); ?></td>
+                                    <td><?php echo formatDate1($invoice['fecha_vencimiento']); ?></td>
+                                    <td style="color: <?= $statusInfo['color'] ?>; font-weight: bold;" class="<?= $statusInfo['class'] ?>">
+                                        <span class="status-indicator <?= $statusInfo['class'] ?>"></span>
+                                        <?php
+                                        if ($invoice['dias_de_vencido'] < 0) {
+                                            echo $invoice['dias_de_vencido']; // vencida
+                                        } else {
+                                            echo '+' . $invoice['dias_de_vencido']; // vigente
+                                        }
+                                        ?>
+                                        <?php if ($statusInfo['mensaje']): ?>
+                                            <span class="mensaje-alerta <?= ($statusInfo['class'] === 'mora-critica') ? 'alerta-critica' : '' ?>"><?= $statusInfo['mensaje'] ?></span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>$<?php echo number_format($invoice['saldo_pendiente'], 2, ',', '.'); ?></td>
+                                    <td>
+                                        <div class="btn-group">
+                                            <a href="view_invoice.php?docnum_interno_sap=<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>" class="btn btn-sm btn-info" title="Ver detalles">
+                                                <i class="fas fa-eye"></i>
+                                            </a>
+                                            <span class="badge bg-success ms-2">OK</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
 
-                                                    // Estado de vencimiento
-                                                    $statusInfo = getDaysStatusAndColor($invoice['dias_de_vencido']);
-                                                    ?>
-                                                    <tr data-invoice-id="<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>" 
-                                                        data-invoice-value="<?php echo htmlspecialchars($invoice['saldo_pendiente']); ?>" 
-                                                        data-invoice-name="<?php echo htmlspecialchars($invoice['nombre']); ?>" 
-                                                        class="<?php echo (empty($supplier_filter)) ? 'supplier-group ' . $statusInfo['class'] : $statusInfo['class']; ?>">
-                                                        <td>
-                                                            <div class="form-check">
-                                                                <input type="checkbox" class="form-check-input invoice-checkbox-ok" id="check_ok_<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>">
-                                                            </div>
-                                                        </td>
-                                                        <td><?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?></td>
-                                                        <td><?php echo htmlspecialchars($invoice['codigo_sn']); ?></td>
-                                                        <td><?php echo htmlspecialchars($invoice['nombre']); ?></td>
-                                                        <td><?php echo formatDate1($invoice['fecha_vencimiento']); ?></td>
-                                                        <td style="color: <?= $statusInfo['color'] ?>; font-weight: bold;" class="<?= $statusInfo['class'] ?>">
-                                                            <span class="status-indicator <?= $statusInfo['class'] ?>"></span>
-                                                            <?php
-                                                            if ($invoice['dias_de_vencido'] < 0) {
-                                                                echo $invoice['dias_de_vencido']; // vencida
-                                                            } else {
-                                                                echo '+' . $invoice['dias_de_vencido']; // vigente
-                                                            }
-                                                            ?>
-                                                            <?php if ($statusInfo['mensaje']): ?>
-                                                                <span class="mensaje-alerta <?= ($statusInfo['class'] === 'mora-critica') ? 'alerta-critica' : '' ?>"><?= $statusInfo['mensaje'] ?></span>
-                                                            <?php endif; ?>
-                                                        </td>
-                                                        <td>$<?php echo number_format($invoice['saldo_pendiente'], 2, ',', '.'); ?></td>
-                                                        <td>
-                                                            <div class="btn-group">
-                                                                <a href="view_invoice.php?docnum_interno_sap=<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>" class="btn btn-sm btn-info" title="Ver detalles">
-                                                                    <i class="fas fa-eye"></i>
-                                                                </a>
-                                                                <span class="badge bg-success ms-2">OK</span>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                <?php endforeach; ?>
-                                            <?php else: ?>
-                                                <tr>
-                                                    <td colspan="8" class="text-center">No hay facturas marcadas como OK</td>
-                                                </tr>
-                                            <?php endif; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                            <!-- 🔹 Total General -->
+                            <tr class="table-success fw-bold">
+                                <td colspan="7" class="text-end">TOTAL GENERAL (<?php echo $countOk; ?> facturas):</td>
+                                <td>$<?php echo number_format($totalGeneralOk, 2, ',', '.'); ?></td>
+                                <td></td>
+                            </tr>
+
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="8" class="text-center">No hay facturas marcadas como OK</td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
                 </div>
             </main>
         </div>

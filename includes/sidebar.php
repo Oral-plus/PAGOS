@@ -98,7 +98,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 </li>
                 <?php endif; ?>
                 
-                <?php if (in_array($role, ['contador','admin'])): ?>
+                <?php if (in_array($role, ['contador','admin','Preparador'])): ?>
                 <li class="nav-item">
                     <a class="nav-link <?php echo $current_page == 'rejected_invoices.php' ? 'active' : ''; ?>" href="rejected_invoices.php">
                         <div class="nav-icon">
@@ -119,6 +119,19 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     </a>
                 </li>
                 <?php endif; ?>
+                <?php if (in_array($role, ['subgerente','gerente','admin','contador','Preparador'])): ?>
+    <li class="nav-item">
+        <a class="nav-link <?php echo ($current_page == 'Aprovacion.php') ? 'active' : ''; ?>" 
+           href="http://192.168.2.242:8080/Aprovacion_ordenes/Aprovacion.php" target="_blank">
+            <div class="nav-icon">
+                <i class="fas fa-file-invoice"></i>
+            </div>
+            <span class="nav-text">Órdenes Aprobadas</span>
+        </a>
+    </li>
+<?php endif; ?>
+
+
                      <?php if (in_array($role, ['admin','contador','verificador','subgerente','gerente','Preparador'])): ?>
                 <li class="nav-item">
                     <a class="nav-link <?php echo $current_page == 'pagos.php' ? 'active' : ''; ?>" href="pagos.php">

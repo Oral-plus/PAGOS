@@ -352,18 +352,7 @@ foreach ($grouped_invoices as $supplier_data) {
             padding: 15px;
         }
         
-        .export-btn {
-            background: linear-gradient(45deg, #17a2b8, #20c997);
-            border: none;
-            color: white;
-            font-weight: 600;
-            border-radius: 6px;
-        }
-        
-        .export-btn:hover {
-            background: linear-gradient(45deg, #20c997, #17a2b8);
-            color: white;
-        }
+       
         
         .search-input {
             border: 2px solid #e9ecef;
@@ -418,9 +407,9 @@ foreach ($grouped_invoices as $supplier_data) {
                             </p>
                         </div>
                         <div>
-                            <button type="button" class="btn export-btn me-2" id="exportBtn">
-                                <i class="fas fa-file-excel me-1"></i> Exportar Excel
-                            </button>
+                            <button type="button" class="btn btn-success" id="exportBtn">
+    <i class="fas fa-file-excel me-1"></i> Exportar a Excel
+</button>
                             <button type="button" class="btn btn-light me-2" id="expandAllBtn">
                                 <i class="fas fa-expand-alt me-1"></i> Expandir Todo
                             </button>
@@ -430,7 +419,7 @@ foreach ($grouped_invoices as $supplier_data) {
                         </div>
                     </div>
                 </div>
-                
+       
                 <!-- Filtros -->
                 <div class="filters-card">
                     <div class="card-body">
@@ -749,112 +738,70 @@ function initializeRealTimeSearch() {
         }
     });
 }
+document.getElementById('exportBtn').addEventListener('click', function() {
+    // Recolectar datos de las tarjetas visibles
+    const visibleCards = Array.from(document.querySelectorAll('.supplier-card')).filter(card => {
+        return !card.classList.contains('hidden');
+    });
 
-// Función COMPLETA para exportar a Excel con FECHA DE VENCIMIENTO, FECHA DE PAGO y NÚMERO DE FACTURA
-document.getElementById('exportBtn').addEventListener('click', function () {
-    const wb = XLSX.utils.book_new();
-    const data = [];
-    const seenInvoices = new Set();
+    if (visibleCards.length === 0) {
+        alert('No hay datos para exportar.');
+        return;
+    }
+
+    const hojaData = [];
+
+    // Encabezado principal
+    hojaData.push(['FACTURAS PAGADAS - REPORTE COMPLETO']);
+
+    // Fecha de exportación
+    hojaData.push(['Fecha de exportación:', new Date().toLocaleString()]);
+
+    // Agregar fila con total de facturas justo debajo de la fecha de exportación
     let totalFacturas = 0;
-    let sumaValorTotal = 0;
-    let sumaValorPagado = 0;
-    const exportDate = new Date().toLocaleDateString('es-CO');
 
-    <?php foreach ($grouped_invoices as $supplier_name => $supplier_data): ?>
-        <?php foreach ($supplier_data['invoices'] as $invoice): ?>
-            <?php
-            $facturaId = $invoice['docnum_interno_sap'] ?? $invoice['Factura'] ?? 'N/A';
-            $numeroFactura = $invoice['numero_factura_proveedor'] ?? $invoice['Factura'] ?? 'N/A';
-            $fechaVencimiento = formatDate($invoice['fecha_vencimiento']);
-            $fechaPago = formatDate($invoice['FechadePago']);
-            $valorTotal = floatval($invoice['ValorTotal'] ?? 0);
-            $valorPagado = floatval($invoice['ValorPagado'] ?? 0);
-            ?>
-            
-            if (!seenInvoices.has('<?php echo $facturaId; ?>')) {
-                seenInvoices.add('<?php echo $facturaId; ?>');
-                totalFacturas++;
-                sumaValorTotal += <?php echo $valorTotal; ?>;
-                sumaValorPagado += <?php echo $valorPagado; ?>;
-                
-                data.push([
-                    '<?php echo addslashes($supplier_name); ?>',
-                    '<?php echo addslashes($facturaId); ?>',
-                    '<?php echo addslashes($numeroFactura); ?>',
-                    '<?php echo addslashes($fechaVencimiento); ?>',
-                    '<?php echo addslashes($fechaPago); ?>',
-                    <?php echo $valorTotal; ?>,
-                    <?php echo $valorPagado; ?>
-                ]);
-            }
-        <?php endforeach; ?>
-    <?php endforeach; ?>
+    // Añadir la fila del total justo aquí
+    hojaData.push(['Total de facturas:', 0]); // Inicializamos en 0, se actualizará después
 
-    // Formatear totales como moneda COP
-    const sumaValorTotalFormateado = sumaValorTotal.toLocaleString('es-CO', {
-        style: 'currency',
-        currency: 'COP',
-        minimumFractionDigits: 0
+    // Fila vacía para separación
+    hojaData.push([]);
+
+    // Encabezados de columnas
+    hojaData.push(['Proveedor', 'N_SAP', 'N_Factura', 'Vencimiento', 'Pago', 'Valor_Total', 'Valor_Pagado', 'Estado']);
+
+    // Agregar datos de facturas y contar
+    visibleCards.forEach(card => {
+        const supplierName = card.dataset.supplier;
+        const invoices = Array.from(card.querySelectorAll('tbody tr'));
+        invoices.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            hojaData.push([
+                supplierName,
+                cells[0].textContent.trim(),
+                cells[1].textContent.trim(),
+                cells[2].textContent.trim(),
+                cells[3].textContent.trim(),
+                cells[4].textContent.trim(),
+                cells[5].textContent.trim(),
+                cells[6].textContent.trim()
+            ]);
+            totalFacturas++;
+        });
     });
 
-    const sumaValorPagadoFormateado = sumaValorPagado.toLocaleString('es-CO', {
-        style: 'currency',
-        currency: 'COP',
-        minimumFractionDigits: 0
-    });
+    // Ahora, actualizar la fila del total de facturas
+    // La fila del total es en la posición 2 (índice 2) en hojaData
+    hojaData[2] = ['Total de facturas:', totalFacturas];
 
-    // Encabezado y resumen con valores formateados
-    data.unshift(
-        ['FACTURAS PAGADAS - REPORTE COMPLETO CON FECHAS'],
-        ['Fecha de exportación:', exportDate],
-        ['Total facturas:', totalFacturas],
-        ['Total valor facturas:', sumaValorTotalFormateado],
-        ['Total valor pagado:', sumaValorPagadoFormateado],
-        [],
-        ['Proveedor', 'N° SAP', 'N° Factura', 'Fecha Vencimiento', 'Fecha de Pago', 'Valor Total', 'Valor Pagado']
-    );
+    // Crear la hoja
+    const worksheet = XLSX.utils.aoa_to_sheet(hojaData);
 
-    const ws = XLSX.utils.aoa_to_sheet(data);
+    // Crear el libro y agregar la hoja
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Facturas');
 
-    const colWidths = [
-        { wch: 35 }, // Proveedor
-        { wch: 15 }, // N° SAP
-        { wch: 20 }, // N° Factura
-        { wch: 18 }, // Fecha Vencimiento
-        { wch: 18 }, // Fecha de Pago
-        { wch: 15 }, // Valor Total
-        { wch: 15 }  // Valor Pagado
-    ];
-    ws['!cols'] = colWidths;
-
-    XLSX.utils.book_append_sheet(wb, ws, "Facturas Pagadas Completo");
-
-    const fileName = `facturas_pagadas_completo_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    XLSX.writeFile(wb, fileName);
-
-    // Mostrar alerta de éxito
-    const alertDiv = document.createElement('div');
-    alertDiv.className = 'alert alert-success alert-dismissible fade show position-fixed';
-    alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 350px; max-width: 500px;';
-    alertDiv.innerHTML = `
-        <div class="d-flex align-items-center">
-            <i class="fas fa-check-circle me-2 fs-4"></i>
-            <div>
-                <strong>¡Exportación Exitosa!</strong><br>
-                <small class="text-muted">Archivo: ${fileName}</small><br>
-                <small class="text-muted">${totalFacturas} facturas exportadas</small>
-            </div>
-        </div>
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    document.body.appendChild(alertDiv);
-
-    // Auto remover la alerta
-    setTimeout(() => {
-        if (alertDiv.parentNode) {
-            alertDiv.remove();
-        }
-    }, 6000);
+    // Descargar el archivo
+    XLSX.writeFile(workbook, 'Facturas_Pagadas.xlsx');
 });
 
 </script>

@@ -231,10 +231,15 @@ function getPendingInvoicesForCurrentUser($user_id, $user_role, $supplier = '', 
     try {
         // Base SQL query - Modificado para incluir lógica específica para verificador
         if ($user_role === 'subgerente') {
-            // Para subgerente: mostrar facturas aprobadas por contador o verificador y facturas corregidas
-            $sql = "SELECT DISTINCT i.*,
+            // Para subgerente: mostrar facturas aprobadas por contador/verificador y facturas corregidas
+            $sql = "SELECT i.*,
                      DATEDIFF(day, i.fecha_vencimiento, GETDATE()) as dias_antiguedad,
                     CASE 
+                        WHEN EXISTS (
+                            SELECT 1 FROM invoice_approvals 
+                            WHERE invoice_id = i.docnum_interno_sap 
+                            AND action = 'reject'
+                        ) THEN 'rechazada'
                         WHEN EXISTS (
                             SELECT 1 FROM invoice_approvals 
                             WHERE invoice_id = i.docnum_interno_sap 
@@ -265,6 +270,12 @@ function getPendingInvoicesForCurrentUser($user_id, $user_role, $supplier = '', 
                                 WHERE action = 'approve' AND user_role = 'subgerente'
                             )
                         ))
+                        OR
+                        -- Facturas rechazadas
+                        (i.docnum_interno_sap IN (
+                            SELECT invoice_id FROM invoice_approvals 
+                            WHERE action = 'reject'
+                        ))
                     )
                     AND i.docnum_interno_sap NOT IN (
                         SELECT invoice_id FROM invoice_approvals 
@@ -275,26 +286,54 @@ function getPendingInvoicesForCurrentUser($user_id, $user_role, $supplier = '', 
             // NUEVO: Para verificador: mostrar solo facturas aprobadas por contador
             $sql = "SELECT i.*,
                      DATEDIFF(day, i.fecha_vencimiento, GETDATE()) as dias_antiguedad,
-                    i.status as display_status
+                    CASE 
+                        WHEN EXISTS (
+                            SELECT 1 FROM invoice_approvals 
+                            WHERE invoice_id = i.docnum_interno_sap 
+                            AND action = 'reject'
+                        ) THEN 'rechazada'
+                        ELSE i.status
+                    END as display_status
                     FROM invoices i 
-                    WHERE i.ok = 'ok'
-                    AND i.docnum_interno_sap IN (
-                        SELECT invoice_id FROM invoice_approvals 
-                        WHERE user_role = 'contador' AND action = 'approve'
-                    )
-                    AND i.docnum_interno_sap NOT IN (
-                        SELECT invoice_id FROM approval_logs WHERE user_id = ?
+                    WHERE (
+                        (i.ok = 'ok'
+                        AND i.docnum_interno_sap IN (
+                            SELECT invoice_id FROM invoice_approvals 
+                            WHERE user_role = 'contador' AND action = 'approve'
+                        )
+                        AND i.docnum_interno_sap NOT IN (
+                            SELECT invoice_id FROM approval_logs WHERE user_id = ?
+                        ))
+                        OR
+                        (i.docnum_interno_sap IN (
+                            SELECT invoice_id FROM invoice_approvals 
+                            WHERE action = 'reject'
+                        ))
                     )";
             $params = array($user_id);
         } else {
             // Para otros roles (contador, etc.): mostrar facturas con ok = 'ok' y no aprobadas por el usuario actual
             $sql = "SELECT i.*,
                      DATEDIFF(day, i.fecha_vencimiento, GETDATE()) as dias_antiguedad,
-                    i.status as display_status
+                    CASE 
+                        WHEN EXISTS (
+                            SELECT 1 FROM invoice_approvals 
+                            WHERE invoice_id = i.docnum_interno_sap 
+                            AND action = 'reject'
+                        ) THEN 'rechazada'
+                        ELSE i.status
+                    END as display_status
                     FROM invoices i 
-                    WHERE i.ok = 'ok'
-                    AND i.docnum_interno_sap NOT IN (
-                        SELECT invoice_id FROM approval_logs WHERE user_id = ?
+                    WHERE (
+                        (i.ok = 'ok'
+                        AND i.docnum_interno_sap NOT IN (
+                            SELECT invoice_id FROM approval_logs WHERE user_id = ?
+                        ))
+                        OR
+                        (i.docnum_interno_sap IN (
+                            SELECT invoice_id FROM invoice_approvals 
+                            WHERE action = 'reject'
+                        ))
                     )";
             $params = array($user_id);
         }
@@ -618,6 +657,13 @@ function formatApprovalTime($timestamp) {
             color: #212529;
         }
         
+        /* Agregando estilo específico para facturas rechazadas en rojo */
+        .badge-rechazada {
+            background-color: #dc3545 !important;
+            color: #ffffff !important;
+            border: 1px solid #dc3545;
+        }
+        
         /* MODIFICADO: Estilo para el filtro de hoy - para todos los roles */
         .today-filter-container {
             background: linear-gradient(135deg, #007bff, #0056b3);
@@ -931,7 +977,7 @@ function formatApprovalTime($timestamp) {
                             <input class="form-check-input today-filter-switch" type="checkbox"
                                    id="todayOnlyFilter"
                                    <?php echo (!empty($filter_today_only) && $filter_today_only === '1') ? 'checked' : ''; ?>
-                                   onchange="toggleTodayFilter()">
+                                   onchange="toggleTodayFil ter()">
                             <label class="form-check-label fw-bold" for="todayOnlyFilter">
                                 Solo Hoy
                             </label>
@@ -1110,306 +1156,296 @@ function formatApprovalTime($timestamp) {
                                             <th>Nit</th>
                                             <th style="width: 120px;">Días Antigüedad</th>
                                             <th style="width: 120px;">Valor</th>
-                                            <th style="width: 100px;">Prioridad</th>
+                                            
                                             <th style="width: 120px;">Estado</th>
                                             <th style="width: 150px;">Acciones</th>
                                         </tr>
                                     </thead>
                                     <?php
-                                    // SOLUCIÓN MEJORADA PARA DUPLICADOS - Usamos array asociativo
-                                    $uniquePending = [];
-                                    foreach ($pending_invoices as $invoice) {
-                                        // Filtrar facturas no canceladas y usar docnum como clave única
-                                        if ($invoice['ESTADOSAP'] != 'C') {
-                                            $uniquePending[$invoice['docnum_interno_sap']] = $invoice;
-                                        }
-                                    }
-                                    // Convertir a array indexado si es necesario
-                                    $uniquePending = array_values($uniquePending);
-                                    
-                                    // --- CONEXIÓN A SQL SERVER ---
-                                    $serverName = "HERCULES";
-                                    $connectionOptions = [
-                                        "Database" => "invoice_approval_system",
-                                        "Uid" => "sa",
-                                        "PWD" => "Sky2022*!",
-                                    ];
-                                    $conn = sqlsrv_connect($serverName, $connectionOptions);
-                                    if ($conn === false) {
-                                        die(print_r(sqlsrv_errors(), true));
-                                    }
-                                    
-                                    // Función para formatear fechas
-                                    if (!function_exists('formatDate')) {
-                                        function formatDate($date) {
-                                            if ($date instanceof DateTime) {
-                                                return $date->format('d/m/Y');
-                                            }
-                                            try {
-                                                $dt = new DateTime($date);
-                                                return $dt->format('d/m/Y');
-                                            } catch (Exception $e) {
-                                                return $date;
-                                            }
-                                        }
-                                    }
-                                    ?>
-                                    <tbody>
-                                        <?php 
-                                        $currentSupplier = '';
-                                        $supplierIndex = 0;
-                                        foreach ($uniquePending as $invoice):
-                                            $hasViewed = hasUserViewedInvoice($invoice['docnum_interno_sap'], $user_id);
-                                            $isProcessedToday = (!empty($filter_today_only) && $filter_today_only === '1');
-                                            
-                                            // Mostrar separador por proveedor con totales
-                                            if ($currentSupplier !== $invoice['nombre'] && empty($filter_supplier)) {
-                                                $currentSupplier = $invoice['nombre'];
-                                                $supplierTotal = $supplier_totals_pending[$currentSupplier] ?? ['total' => 0, 'count' => 0];
-                                                $supplierIndex++;
-                                                ?>
-                                                <tr class="supplier-header" data-supplier-id="supplier-<?= $supplierIndex ?>">
-                                                    <td colspan="9">
-                                                        <div class="d-flex justify-content-between align-items-center">
-                                                            <div class="d-flex align-items-center">
-                                                                <button class="btn btn-sm btn-toggle me-2" data-bs-toggle="collapse"
-                                                                        data-bs-target=".supplier-<?= $supplierIndex ?>"
-                                                                        data-supplier-index="<?= $supplierIndex ?>"
-                                                                        aria-expanded="true" aria-controls="supplier-<?= $supplierIndex ?>">
-                                                                    <i class="fas fa-chevron-down"></i>
-                                                                </button>
-                                                                <div>
-                                                                    <i class="fas fa-building me-2"></i>
-                                                                    <strong><?= htmlspecialchars($currentSupplier) ?></strong>
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                <span class="supplier-count-badge me-2">
-                                                                    <i class="fas fa-file-invoice me-1"></i>
-                                                                    <?= $supplierTotal['count'] ?> facturas
-                                                                </span>
-                                                                <span class="supplier-total-badge">
-                                                                    <i class="fas fa-dollar-sign me-1"></i>
-                                                                    $<?= number_format($supplierTotal['total'], 2, ',', '.') ?>
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                                <?php
-                                            }
-                                        ?>
-                                            <tr class="supplier-<?= $supplierIndex ?> collapse show <?= ($isProcessedToday) ? 'today-ok-invoice' : '' ?> <?= (empty($filter_supplier)) ? 'supplier-group' : '' ?>"
-                                                data-parent="supplier-<?= $supplierIndex ?>">
-                                                <td>
-                                                    <?php
-                                                    $idRelacionado = $invoice['docnum_interno_sap'];
-                                                    $fechaEncontrada = null;
-                                                    
-                                                    // Buscar fecha en invoices
-                                                    $tsql = "SELECT created_at FROM invoices WHERE docnum_interno_sap = ?";
-                                                    $params = [$idRelacionado];
-                                                    $stmt = sqlsrv_query($conn, $tsql, $params);
-                                                    if ($stmt !== false && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
-                                                        $fechaEncontrada = $row['created_at'];
-                                                    } else {
-                                                        // Buscar en invoice_approvals si no se encontró
-                                                        $tsql = "SELECT created_at FROM invoice_approvals WHERE invoice_id = ?";
-                                                        $stmt = sqlsrv_query($conn, $tsql, $params);
-                                                        
-                                                        if ($stmt !== false && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
-                                                            $fechaEncontrada = $row['created_at'];
-                                                        }
-                                                    }
-                                                    
-                                                    echo $fechaEncontrada ? formatDate($fechaEncontrada) : "No hay fecha";
-                                                    
-                                                    if ($isProcessedToday) {
-                                                        echo '<br><small class="'.($role === 'subgerente' ? 'text-primary' : ($role === 'verificador' ? 'text-purple' : 'text-info')).'">';
-                                                        echo '<i class="fas '.($role === 'subgerente' ? 'fa-star' : ($role === 'verificador' ? 'fa-user-check' : 'fa-check-circle')).'"></i> ';
-                                                        echo $role === 'subgerente' ? 'Aprobada hoy' : ($role === 'verificador' ? 'Aprobada por contador hoy' : 'Marcada OK hoy');
-                                                        echo '</small>';
-                                                    }
-                                                    ?>
-                                                </td>
-                                                <td>
-                                                    <?= $invoice['nombre'] ?>
-                                                    <?php if ($isProcessedToday): ?>
-                                                        <span class="badge <?= ($role === 'verificador') ? 'bg-purple' : 'bg-info' ?> ms-1" title="<?= ($role === 'verificador') ? 'Aprobada por contador hoy' : 'Marcada como OK hoy' ?>">
-                                                            <i class="fas <?= ($role === 'verificador') ? 'fa-user-check' : 'fa-calendar-check' ?>"></i>
-                                                        </span>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td><?= $invoice['numero_factura_proveedor'] ?></td>
-                                                <td><?= $invoice['codigo_sn'] ?></td>
-                                                <td>
-                                                    <span class="badge <?= ($invoice['dias_antiguedad'] > 30) ? 'bg-danger' : (($invoice['dias_antiguedad'] > 15) ? 'bg-warning' : 'bg-success') ?>">
-                                                        <?= $invoice['dias_antiguedad'] ?> días
-                                                    </span>
-                                                </td>
-                                                <td>$<?= number_format($invoice['saldo_pendiente'], 2, ',', '.') ?></td>
-                                                <td>
-                                                    <?php
-                                                    $priority = strtolower(trim($invoice['priority']));
-                                                    $priorityStyles = [
-                                                        'baja' => ['color' => '#d4edda', 'text' => '#155724', 'border' => '#c3e6cb'],
-                                                        'media' => ['color' => '#fff3cd', 'text' => '#856404', 'border' => '#ffeeba'],
-                                                        'alta' => ['color' => '#f8d7da', 'text' => '#721c24', 'border' => '#f5c6cb'],
-                                                        'default' => ['color' => '#e0e0e0', 'text' => '#000', 'border' => '#ccc']
-                                                    ];
-                                                    
-                                                    $style = $priorityStyles[$priority] ?? $priorityStyles['default'];
-                                                    ?>
-                                                    <span style="font-weight: 500; letter-spacing: 0.5px; font-family: 'Arial', sans-serif; padding: 4px 8px; border: 1px solid <?= $style['border'] ?>; border-radius: 4px; display: inline-block; text-transform: capitalize; background-color: <?= $style['color'] ?>; color: <?= $style['text'] ?>;">
-                                                        <?= ucfirst($priority) ?>
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <?php if (isset($invoice['display_status']) && $invoice['display_status'] == 'corregida'): ?>
-                                                        <span class="badge badge-corregido">
-                                                            <i class="fas fa-check-circle me-1"></i> Corregida
-                                                        </span>
-                                                    <?php else: ?>
-                                                        <span class="badge <?= getStatusBadgeClass($invoice['status']) ?>">
-                                                            <?= getStatusLabel($invoice['status']) ?>
-                                                        </span>
-                                                        <?php if ($role === 'verificador'): ?>
-                                                            <br><small class="text-muted">
-                                                                <i class="fas fa-user-check me-1"></i>Aprobada por contador
-                                                            </small>
-                                                        <?php endif; ?>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td>
-                                                    <div class="btn-group">
-                                                        <a href="view_invoice.php?docnum_interno_sap=<?= $invoice['docnum_interno_sap'] ?>" class="btn btn-sm btn-info" title="Ver detalles">
-                                                            <i class="fas fa-eye"></i>
-                                                        </a>
-                                                        
-                                                        <?php if ($hasViewed): ?>
-                                                            <button type="button" class="btn btn-sm btn-success" title="Aprobar"
-                                                                    data-bs-toggle="modal" data-bs-target="#approveModal<?= $invoice['docnum_interno_sap'] ?>">
-                                                                <i class="fas fa-check"></i>
-                                                            </button>
-                                                        <?php else: ?>
-                                                            <button type="button" class="btn btn-sm btn-secondary" title="Debe ver los detalles antes de aprobar"
-                                                                    onclick="alert('Debe ver los detalles de la factura antes de aprobarla')">
-                                                                <i class="fas fa-check"></i>
-                                                            </button>
-                                                        <?php endif; ?>
-                                                        
-                                                        <!-- Modal de Aprobación -->
-                                                        <div class="modal fade" id="approveModal<?= $invoice['docnum_interno_sap'] ?>" tabindex="-1"
-                                                             aria-labelledby="approveModalLabel<?= $invoice['docnum_interno_sap'] ?>" aria-hidden="true">
-                                                            <div class="modal-dialog">
-                                                                <div class="modal-content">
-                                                                    <div class="modal-header bg-success text-white">
-                                                                        <h5 class="modal-title" id="approveModalLabel<?= $invoice['docnum_interno_sap'] ?>">
-                                                                            Aprobar Factura #<?= $invoice['docnum_interno_sap'] ?>
-                                                                        </h5>
-                                                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                                                                    </div>
-                                                                    <form method="POST" action="">
-                                                                        <div class="modal-body">
-                                                                            <div class="alert alert-warning">
-                                                                                <i class="fas fa-exclamation-triangle me-2"></i>
-                                                                                <strong>Aviso importante:</strong> Al aprobar esta factura, quedará registrado su nombre (<?= $user['name'] ?>),
-                                                                                rol (<?= ucfirst($role) ?>) y la fecha/hora exacta de la acción.
-                                                                            </div>
-                                                                            <?php if (isset($invoice['display_status']) && $invoice['display_status'] == 'corregida'): ?>
-                                                                                <div class="alert alert-warning">
-                                                                                    <i class="fas fa-info-circle me-2"></i>
-                                                                                    <strong>Nota:</strong> Esta factura ha sido corregida. Al aprobarla, cambiará su estado a "Aprobada".
-                                                                                </div>
-                                                                            <?php endif; ?>
-                                                                            <input type="hidden" name="invoice_id" value="<?= $invoice['docnum_interno_sap'] ?>">
-                                                                            <div class="mb-3">
-                                                                                <label for="comments<?= $invoice['docnum_interno_sap'] ?>" class="form-label">Comentarios (opcional)</label>
-                                                                                <textarea class="form-control" id="comments<?= $invoice['docnum_interno_sap'] ?>" name="comments" rows="3"></textarea>
-                                                                            </div>
-                                                                            <div class="mb-3 form-check">
-                                                                                <input type="checkbox" class="form-check-input" id="confirmCheck<?= $invoice['docnum_interno_sap'] ?>" name="confirm_approval" checked required>
-                                                                                <label class="form-check-label" for="confirmCheck<?= $invoice['docnum_interno_sap'] ?>">
-                                                                                    Confirmo que he revisado los detalles de esta factura y autorizo su aprobación
-                                                                                </label>
-                                                                            </div>
-                                                                        </div>
-                                                                        <div class="modal-footer">
-                                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                                                                            <button type="submit" name="approve_invoice" class="btn btn-success">
-                                                                                <i class="fas fa-check me-1"></i> Confirmar Aprobación
-                                                                            </button>
-                                                                        </div>
-                                                                    </form>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        <!-- Botón de Rechazo -->
-                                                        <?php if (in_array($role, ['subgerente', 'admin'])): ?>
-                                                            <?php if ($hasViewed): ?>
-                                                                <button type="button" class="btn btn-sm btn-danger" title="Rechazar"
-                                                                        data-bs-toggle="modal" data-bs-target="#rejectModal<?= $invoice['docnum_interno_sap'] ?>">
-                                                                    <i class="fas fa-times"></i>
-                                                                </button>
-                                                            <?php else: ?>
-                                                                <button type="button" class="btn btn-sm btn-outline-danger" title="Debe ver los detalles antes de rechazar"
-                                                                        onclick="alert('Debe ver los detalles de la factura antes de rechazarla')">
-                                                                    <i class="fas fa-times"></i>
-                                                                </button>
-                                                            <?php endif; ?>
-                                                            
-                                                            <!-- Modal de Rechazo -->
-                                                            <div class="modal fade" id="rejectModal<?= $invoice['docnum_interno_sap'] ?>" tabindex="-1"
-                                                                 aria-labelledby="rejectModalLabel<?= $invoice['docnum_interno_sap'] ?>" aria-hidden="true">
-                                                                <div class="modal-dialog">
-                                                                    <div class="modal-content">
-                                                                        <div class="modal-header bg-danger text-white">
-                                                                            <h5 class="modal-title" id="rejectModalLabel<?= $invoice['docnum_interno_sap'] ?>">
-                                                                                <i class="fas fa-exclamation-triangle me-2"></i>
-                                                                                Rechazar Factura #<?= $invoice['docnum_interno_sap'] ?>
-                                                                            </h5>
-                                                                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                                                                        </div>
-                                                                        <form method="POST" action="">
-                                                                            <div class="modal-body">
-                                                                                <div class="alert alert-danger">
-                                                                                    <i class="fas fa-exclamation-triangle me-2"></i>
-                                                                                    <strong>¡Atención!</strong> Esta acción rechazará permanentemente la factura.
-                                                                                </div>
-                                                                                <input type="hidden" name="invoice_id" value="<?= $invoice['docnum_interno_sap'] ?>">
-                                                                                
-                                                                                <div class="mb-3">
-                                                                                    <label for="reject_reason<?= $invoice['docnum_interno_sap'] ?>" class="form-label">
-                                                                                        <strong>Razón del rechazo (obligatorio)</strong>
-                                                                                    </label>
-                                                                                    <textarea class="form-control" id="reject_reason<?= $invoice['docnum_interno_sap'] ?>"
-                                                                                              name="reject_reason" rows="4" required></textarea>
-                                                                                </div>
-                                                                                <div class="mb-3 form-check">
-                                                                                    <input type="checkbox" class="form-check-input" id="confirmRejectCheck<?= $invoice['docnum_interno_sap'] ?>"
-                                                                                           name="confirm_rejection" required>
-                                                                                    <label class="form-check-label" for="confirmRejectCheck<?= $invoice['docnum_interno_sap'] ?>">
-                                                                                        <strong>Confirmo el rechazo de esta factura</strong>
-                                                                                    </label>
-                                                                                </div>
-                                                                            </div>
-                                                                            <div class="modal-footer">
-                                                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                                                                                <button type="submit" name="reject_invoice" class="btn btn-danger">
-                                                                                    <i class="fas fa-times me-1"></i> Confirmar Rechazo
-                                                                                </button>
-                                                                            </div>
-                                                                        </form>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        <?php endif; ?>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
+// SOLUCIÓN MEJORADA PARA DUPLICADOS - Usamos array asociativo
+$uniquePending = [];
+foreach ($pending_invoices as $invoice) {
+    // Filtrar facturas no canceladas Y no rechazadas, usar docnum como clave única
+    if ($invoice['ESTADOSAP'] != 'C' && 
+        (!isset($invoice['status']) || $invoice['status'] !== 'rechazada') &&
+        (!isset($invoice['display_status']) || $invoice['display_status'] !== 'rechazada')) {
+        $uniquePending[$invoice['docnum_interno_sap']] = $invoice;
+    }
+}
+// Convertir a array indexado si es necesario
+$uniquePending = array_values($uniquePending);
+
+// --- CONEXIÓN A SQL SERVER ---
+$serverName = "HERCULES";
+$connectionOptions = [
+    "Database" => "invoice_approval_system",
+    "Uid" => "sa",
+    "PWD" => "Sky2022*!",
+];
+$conn = sqlsrv_connect($serverName, $connectionOptions);
+if ($conn === false) {
+    die(print_r(sqlsrv_errors(), true));
+}
+
+// Función para formatear fechas
+if (!function_exists('formatDate')) {
+    function formatDate($date) {
+        if ($date instanceof DateTime) {
+            return $date->format('d/m/Y');
+        }
+        try {
+            $dt = new DateTime($date);
+            return $dt->format('d/m/Y');
+        } catch (Exception $e) {
+            return $date;
+        }
+    }
+}
+?>
+<tbody>
+<?php 
+$currentSupplier = '';
+$supplierIndex = 0;
+foreach ($uniquePending as $invoice):
+    // YA NO ES NECESARIO ESTE FILTRO AQUÍ porque ya se filtró arriba
+    // Las facturas rechazadas ya fueron excluidas del array $uniquePending
+
+    $hasViewed = hasUserViewedInvoice($invoice['docnum_interno_sap'], $user_id);
+    $isProcessedToday = (!empty($filter_today_only) && $filter_today_only === '1');
+    
+    // Mostrar separador por proveedor con totales
+    if ($currentSupplier !== $invoice['nombre'] && empty($filter_supplier)) {
+        $currentSupplier = $invoice['nombre'];
+        $supplierTotal = $supplier_totals_pending[$currentSupplier] ?? ['total' => 0, 'count' => 0];
+        $supplierIndex++;
+        ?>
+        <tr class="supplier-header" data-supplier-id="supplier-<?= $supplierIndex ?>">
+            <td colspan="9">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <button class="btn btn-sm btn-toggle me-2" data-bs-toggle="collapse"
+                                data-bs-target=".supplier-<?= $supplierIndex ?>"
+                                data-supplier-index="<?= $supplierIndex ?>"
+                                aria-expanded="true" aria-controls="supplier-<?= $supplierIndex ?>">
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                        <div>
+                            <i class="fas fa-building me-2"></i>
+                            <strong><?= htmlspecialchars($currentSupplier) ?></strong>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="supplier-count-badge me-2">
+                            <i class="fas fa-file-invoice me-1"></i>
+                            <?= $supplierTotal['count'] ?> facturas
+                        </span>
+                        <span class="supplier-total-badge">
+                            <i class="fas fa-dollar-sign me-1"></i>
+                            $<?= number_format($supplierTotal['total'], 2, ',', '.') ?>
+                        </span>
+                    </div>
+                </div>
+            </td>
+        </tr>
+        <?php
+    }
+?>
+    <tr class="supplier-<?= $supplierIndex ?> collapse show <?= ($isProcessedToday) ? 'today-ok-invoice' : '' ?> <?= (empty($filter_supplier)) ? 'supplier-group' : '' ?>"
+        data-parent="supplier-<?= $supplierIndex ?>">
+        <td>
+            <?php
+            $idRelacionado = $invoice['docnum_interno_sap'];
+            $fechaEncontrada = null;
+            
+            // Buscar fecha en invoices
+            $tsql = "SELECT created_at FROM invoices WHERE docnum_interno_sap = ?";
+            $params = [$idRelacionado];
+            $stmt = sqlsrv_query($conn, $tsql, $params);
+            if ($stmt !== false && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $fechaEncontrada = $row['created_at'];
+            } else {
+                // Buscar en invoice_approvals si no se encontró
+                $tsql = "SELECT created_at FROM invoice_approvals WHERE invoice_id = ?";
+                $stmt = sqlsrv_query($conn, $tsql, $params);
+                
+                if ($stmt !== false && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                    $fechaEncontrada = $row['created_at'];
+                }
+            }
+            
+            echo $fechaEncontrada ? formatDate($fechaEncontrada) : "No hay fecha";
+            
+            if ($isProcessedToday) {
+                echo '<br><small class="'.($role === 'subgerente' ? 'text-primary' : ($role === 'verificador' ? 'text-purple' : 'text-info')).'">';
+                echo '<i class="fas '.($role === 'subgerente' ? 'fa-star' : ($role === 'verificador' ? 'fa-user-check' : 'fa-check-circle')).'"></i> ';
+                echo $role === 'subgerente' ? 'Aprobada hoy' : ($role === 'verificador' ? 'Aprobada por contador hoy' : 'Marcada OK hoy');
+                echo '</small>';
+            }
+            ?>
+        </td>
+        <td>
+            <?= $invoice['nombre'] ?>
+            <?php if ($isProcessedToday): ?>
+                <span class="badge <?= ($role === 'verificador') ? 'bg-purple' : 'bg-info' ?> ms-1" title="<?= ($role === 'verificador') ? 'Aprobada por contador hoy' : 'Marcada como OK hoy' ?>">
+                    <i class="fas <?= ($role === 'verificador') ? 'fa-user-check' : 'fa-calendar-check' ?>"></i>
+                </span>
+            <?php endif; ?>
+        </td>
+        <td><?= $invoice['numero_factura_proveedor'] ?></td>
+        <td><?= $invoice['codigo_sn'] ?></td>
+        <td>
+            <span class="badge <?= ($invoice['dias_antiguedad'] < 0) ? 'bg-success' : 'bg-danger' ?>">
+                <?= $invoice['dias_antiguedad'] ?> días
+            </span>
+        </td>
+        <td>$<?= number_format($invoice['saldo_pendiente'], 2, ',', '.') ?></td>
+        <td>
+            <?php if (isset($invoice['display_status']) && $invoice['display_status'] == 'corregida'): ?>
+                <span class="badge badge-corregido">
+                    <i class="fas fa-check-circle me-1"></i> Corregida
+                </span>
+            <?php else: ?>
+                <span class="badge <?= getStatusBadgeClass($invoice['status']) ?>">
+                    <?= getStatusLabel($invoice['status']) ?>
+                </span>
+                <?php if ($role === 'verificador'): ?>
+                    <br><small class="text-muted">
+                        <i class="fas fa-user-check me-1"></i>Aprobada por contador
+                    </small>
+                <?php endif; ?>
+            <?php endif; ?>
+        </td>
+        <td>
+            <div class="btn-group">
+                <a href="view_invoice.php?docnum_interno_sap=<?= $invoice['docnum_interno_sap'] ?>" class="btn btn-sm btn-info" title="Ver detalles">
+                    <i class="fas fa-eye"></i>
+                </a>
+                
+                <?php if ($hasViewed): ?>
+                    <button type="button" class="btn btn-sm btn-success" title="Aprobar"
+                            data-bs-toggle="modal" data-bs-target="#approveModal<?= $invoice['docnum_interno_sap'] ?>">
+                        <i class="fas fa-check"></i>
+                    </button>
+                <?php else: ?>
+                    <button type="button" class="btn btn-sm btn-secondary" title="Debe ver los detalles antes de aprobar"
+                            onclick="alert('Debe ver los detalles de la factura antes de aprobarla')">
+                        <i class="fas fa-check"></i>
+                    </button>
+                <?php endif; ?>
+                
+                <!-- Modal de Aprobación -->
+                <div class="modal fade" id="approveModal<?= $invoice['docnum_interno_sap'] ?>" tabindex="-1"
+                     aria-labelledby="approveModalLabel<?= $invoice['docnum_interno_sap'] ?>" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header bg-success text-white">
+                                <h5 class="modal-title" id="approveModalLabel<?= $invoice['docnum_interno_sap'] ?>">
+                                    Aprobar Factura #<?= $invoice['docnum_interno_sap'] ?>
+                                </h5>
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <form method="POST" action="">
+                                <div class="modal-body">
+                                    <div class="alert alert-warning">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>
+                                        <strong>Aviso importante:</strong> Al aprobar esta factura, quedará registrado su nombre (<?= $user['name'] ?>),
+                                        rol (<?= ucfirst($role) ?>) y la fecha/hora exacta de la acción.
+                                    </div>
+                                    <?php if (isset($invoice['display_status']) && $invoice['display_status'] == 'corregida'): ?>
+                                        <div class="alert alert-warning">
+                                            <i class="fas fa-info-circle me-2"></i>
+                                            <strong>Nota:</strong> Esta factura ha sido corregida. Al aprobarla, cambiará su estado a "Aprobada".
+                                        </div>
+                                    <?php endif; ?>
+                                    <input type="hidden" name="invoice_id" value="<?= $invoice['docnum_interno_sap'] ?>">
+                                    <div class="mb-3">
+                                        <label for="comments<?= $invoice['docnum_interno_sap'] ?>" class="form-label">Comentarios (opcional)</label>
+                                        <textarea class="form-control" id="comments<?= $invoice['docnum_interno_sap'] ?>" name="comments" rows="3"></textarea>
+                                    </div>
+                                    <div class="mb-3 form-check">
+                                        <input type="checkbox" class="form-check-input" id="confirmCheck<?= $invoice['docnum_interno_sap'] ?>" name="confirm_approval" checked required>
+                                        <label class="form-check-label" for="confirmCheck<?= $invoice['docnum_interno_sap'] ?>">
+                                            Confirmo que he revisado los detalles de esta factura y autorizo su aprobación
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" name="approve_invoice" class="btn btn-success">
+                                        <i class="fas fa-check me-1"></i> Confirmar Aprobación
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Botón de Rechazo -->
+                <?php if (in_array($role, ['subgerente', 'admin','contador'])): ?>
+                    <?php if ($hasViewed): ?>
+                        <button type="button" class="btn btn-sm btn-danger" title="Rechazar"
+                                data-bs-toggle="modal" data-bs-target="#rejectModal<?= $invoice['docnum_interno_sap'] ?>">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    <?php else: ?>
+                        <button type="button" class="btn btn-sm btn-outline-danger" title="Debe ver los detalles antes de rechazar"
+                                onclick="alert('Debe ver los detalles de la factura antes de rechazarla')">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    <?php endif; ?>
+                    
+                    <!-- Modal de Rechazo -->
+                    <div class="modal fade" id="rejectModal<?= $invoice['docnum_interno_sap'] ?>" tabindex="-1"
+                         aria-labelledby="rejectModalLabel<?= $invoice['docnum_interno_sap'] ?>" aria-hidden="true">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header bg-danger text-white">
+                                    <h5 class="modal-title" id="rejectModalLabel<?= $invoice['docnum_interno_sap'] ?>">
+                                        <i class="fas fa-exclamation-triangle me-2"></i>
+                                        Rechazar Factura #<?= $invoice['docnum_interno_sap'] ?>
+                                    </h5>
+                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <form method="POST" action="">
+                                    <div class="modal-body">
+                                        <div class="alert alert-danger">
+                                            <i class="fas fa-exclamation-triangle me-2"></i>
+                                            <strong>¡Atención!</strong> Esta acción rechazará permanentemente la factura.
+                                        </div>
+                                        <input type="hidden" name="invoice_id" value="<?= $invoice['docnum_interno_sap'] ?>">
+                                        
+                                        <div class="mb-3">
+                                            <label for="reject_reason<?= $invoice['docnum_interno_sap'] ?>" class="form-label">
+                                                <strong>Razón del rechazo (obligatorio)</strong>
+                                            </label>
+                                            <textarea class="form-control" id="reject_reason<?= $invoice['docnum_interno_sap'] ?>"
+                                                      name="reject_reason" rows="4" required></textarea>
+                                        </div>
+                                        <div class="mb-3 form-check">
+                                            <input type="checkbox" class="form-check-input" id="confirmRejectCheck<?= $invoice['docnum_interno_sap'] ?>"
+                                                   name="confirm_rejection" required>
+                                            <label class="form-check-label" for="confirmRejectCheck<?= $invoice['docnum_interno_sap'] ?>">
+                                                <strong>Confirmo el rechazo de esta factura</strong>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" name="reject_invoice" class="btn btn-danger">
+                                            <i class="fas fa-times me-1"></i> Confirmar Rechazo
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </td>
+    </tr>
+<?php endforeach; ?>
+</tbody>
+
                                 </table>
                             </div>
                             
@@ -1444,7 +1480,7 @@ function formatApprovalTime($timestamp) {
                                     <?php else: ?>
                                         <strong>Información:</strong> No se encontraron facturas pendientes de aprobación.
                                     <?php endif; ?>
-                                <?php endif; ?>
+                            <?php endif; ?>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -1915,8 +1951,8 @@ function formatApprovalTime($timestamp) {
     <?php include 'includes/footer.php'; ?>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap-datepicker@1.9.0/dist/js/bootstrap-datepicker.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap-datepicker@1.9.0/dist/locales/bootstrap-datepicker.es.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap-datepicker@5.3.0/dist/js/bootstrap-datepicker.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap-datepicker@5.3.0/dist/locales/bootstrap-datepicker.es.min.js"></script>
     <script>
     // Funciones para manejar los filtros
     function toggleApprovedTodayFilter() {

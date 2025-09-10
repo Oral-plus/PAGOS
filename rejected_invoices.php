@@ -496,154 +496,151 @@ function getRejectedInvoices($supplier = '', $date_from = '', $date_to = '', $re
                 </div>
                 
                 <div class="card shadow-sm">
-                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">Listado de Facturas Rechazadas</h5>
-                        <button class="btn btn-sm btn-light" id="exportBtn" title="Exportar a Excel">
-                            <i class="fas fa-file-excel me-1"></i> Exportar
-                        </button>
-                    </div>
-<div class="card-body">
-                        <?php if (count($rejected_invoices) > 0): ?>
-                            <div class="table-responsive">
-                                <table class="table table-striped table-hover" id="invoicesTable">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Fecha</th>
-                                            <th>Proveedor</th>
-                                            <th>Valor</th>
-                                            <th>Rechazada por</th>
-                                            <th>Fecha Rechazo</th>
-                                            <th>Motivo</th>
-                                            <th>Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php 
-                                        $conn = getDbConnection();
-                                        foreach ($rejected_invoices as $invoice): 
-                                            // Filtrar solo facturas con ESTADOSAP = 'O'
-                                            if ($invoice['ESTADOSAP'] !== 'O') {
-                                                continue; // Saltar esta factura si no cumple el criterio
-                                            }
-                                            
-                                            // Obtener detalles del rechazo
-                                            try {
-                                                if ($conn instanceof PDO) {
-                                                    $stmt = $conn->prepare("
-                                                        SELECT  a.*, a.created_at as rejection_date, u.name as user_name, u.role as user_role, a.comments as rejection_reason
-                                                        FROM invoice_approvals a
-                                                        JOIN users u ON a.user_id = u.id
-                                                        WHERE a.invoice_id = ? AND a.action = 'reject'
-                                                        ORDER BY a.created_at DESC LIMIT 1
-                                                    ");
-                                                    $stmt->execute([$invoice['docnum_interno_sap']]);
-                                                    $rejection = $stmt->fetch();
-                                                } else {
-                                                    $sql = "
-                                                        SELECT TOP 1 a.*, a.created_at as rejection_date, u.name as user_name, u.role as user_role, a.comments as rejection_reason
-                                                        FROM invoice_approvals a
-                                                        JOIN users u ON a.user_id = u.id
-                                                        WHERE a.invoice_id = ? AND a.action = 'reject'
-                                                        ORDER BY a.created_at DESC
-                                                    ";
-                                                    $params = array($invoice['docnum_interno_sap']);
-                                                    $stmt = sqlsrv_query($conn, $sql, $params);
-                                                    if ($stmt === false) {
-                                                        throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
-                                                    }
-                                                    $rejection = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
-                                                    sqlsrv_free_stmt($stmt);
-                                                }
-                                            } catch (Exception $e) {
-                                                error_log("Error al obtener detalles del rechazo: " . $e->getMessage());
-                                                $rejection = null;
-                                            }
-                                        ?>
-                                            <tr>
-                                                <td><?php echo $invoice['docnum_interno_sap']; ?></td>
-                                                <td><?php echo formatDate($invoice['fecha_vencimiento']); ?></td>
-                                                <td><?php echo htmlspecialchars($invoice['nombre']); ?></td>
-                                                <td>$<?php echo number_format($invoice['saldo_pendiente'], 2, ',', '.'); ?></td>
-                                                <td>
-                                                    <?php if ($rejection): ?>
-                                                        <?php echo htmlspecialchars($rejection['user_name']); ?> (<?php echo ucfirst($rejection['user_role']); ?>)
-                                                    <?php else: ?>
-                                                        <span class="text-muted">No disponible</span>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td>
-                                                    <?php if ($rejection): ?>
-                                                        <?php echo formatDateTime($rejection['rejection_date']); ?>
-                                                    <?php else: ?>
-                                                        <span class="text-muted">No disponible</span>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td>
-                                                    <?php if ($rejection && !empty($rejection['rejection_reason'])): ?>
-                                                        <span class="d-inline-block text-truncate" style="max-width: 150px;" data-bs-toggle="tooltip" title="<?php echo htmlspecialchars($rejection['rejection_reason']); ?>">
-                                                            <?php echo htmlspecialchars($rejection['rejection_reason']); ?>
-                                                        </span>
-                                                    <?php else: ?>
-                                                        <span class="text-muted">No disponible</span>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td>
-                                                    <div class="action-buttons">
-                                                        <a href="view_invoice.php?docnum_interno_sap=<?php echo $invoice['docnum_interno_sap']; ?>" class="btn btn-info btn-sm" title="Ver detalles">
-                                                            <i class="fas fa-eye"></i>
-                                                        </a>
-                                                        
-                                                        <?php if (in_array($role, ['admin', 'gerente', 'contador'])): ?>
-                                                            <!-- Botón para corregir factura -->
-                                                            <button type="button" class="btn btn-corregir btn-sm correct-invoice-btn" 
-                                                                    data-bs-toggle="modal" 
-                                                                    data-bs-target="#correctInvoiceModal" 
-                                                                    data-invoice-id="<?php echo $invoice['docnum_interno_sap']; ?>"
-                                                                    data-invoice-supplier="<?php echo htmlspecialchars($invoice['nombre']); ?>"
-                                                                    title="Corregir factura">
-                                                                <i class="fas fa-edit me-1"></i> Corregir
-                                                            </button>
-                                                            
-                                                            <!-- Botón para completar -->
-                                                            <button type="button" class="btn btn-primary btn-sm btn-completar mark-completed-btn" 
-                                                                    data-bs-toggle="modal" 
-                                                                    data-bs-target="#markCompletedModal" 
-                                                                    data-invoice-id="<?php echo $invoice['docnum_interno_sap']; ?>"
-                                                                    data-invoice-supplier="<?php echo htmlspecialchars($invoice['nombre']); ?>"
-                                                                    title="Marcar como completada">
-                                                                <i class="fas fa-check-circle me-1"></i> Completar
-                                                            </button>
-                                                        <?php endif; ?>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <!-- Contador de resultados -->
-                            <div class="mt-3">
-                                <p class="text-muted">
-                                    <i class="fas fa-list me-1"></i> Mostrando <?php echo count($rejected_invoices); ?> facturas rechazadas
-                                    <?php if (!empty($filter_supplier) || !empty($filter_date_from) || !empty($filter_date_to) || !empty($filter_rejected_by)): ?>
-                                        con los filtros aplicados
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Listado de Facturas Rechazadas</h5>
+        <button class="btn btn-sm btn-light" id="exportBtn" title="Exportar a Excel">
+            <i class="fas fa-file-excel me-1"></i> Exportar
+        </button>
+    </div>
+    <div class="card-body">
+        <?php 
+        $unique_invoices = [];
+        $filtered_invoices = [];
+        
+        foreach ($rejected_invoices as $invoice) {
+            if (!in_array($invoice['docnum_interno_sap'], $unique_invoices)) {
+                $unique_invoices[] = $invoice['docnum_interno_sap'];
+                $filtered_invoices[] = $invoice;
+            }
+        }
+        ?>
+        
+        <?php if (count($filtered_invoices) > 0): ?>
+            <div class="table-responsive">
+                <table class="table table-striped table-hover" id="invoicesTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>ID</th>
+                            <th>Fecha</th>
+                            <th>Proveedor</th>
+                            <th>Valor</th>
+                            <th>Rechazada por</th>
+                            <th>Fecha Rechazo</th>
+                            <th>Motivo</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php 
+                        $conn = getDbConnection();
+                        foreach ($filtered_invoices as $invoice): 
+                            if ($invoice['ESTADOSAP'] !== 'O') {
+                                continue;
+                            }
+                            
+                            try {
+                                if ($conn instanceof PDO) {
+                                    $stmt = $conn->prepare("
+                                        SELECT a.*, a.created_at as rejection_date, u.name as user_name, u.role as user_role, a.comments as rejection_reason
+                                        FROM invoice_approvals a
+                                        JOIN users u ON a.user_id = u.id
+                                        WHERE a.invoice_id = ? AND a.action = 'reject'
+                                        ORDER BY a.created_at DESC LIMIT 1
+                                    ");
+                                    $stmt->execute([$invoice['docnum_interno_sap']]);
+                                    $rejection = $stmt->fetch();
+                                } else {
+                                    $sql = "
+                                        SELECT TOP 1 a.*, a.created_at as rejection_date, u.name as user_name, u.role as user_role, a.comments as rejection_reason
+                                        FROM invoice_approvals a
+                                        JOIN users u ON a.user_id = u.id
+                                        WHERE a.invoice_id = ? AND a.action = 'reject'
+                                        ORDER BY a.created_at DESC
+                                    ";
+                                    $params = array($invoice['docnum_interno_sap']);
+                                    $stmt = sqlsrv_query($conn, $sql, $params);
+                                    if ($stmt === false) {
+                                        throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
+                                    }
+                                    $rejection = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+                                    sqlsrv_free_stmt($stmt);
+                                }
+                            } catch (Exception $e) {
+                                error_log("Error al obtener detalles del rechazo: " . $e->getMessage());
+                                $rejection = null;
+                            }
+                        ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?></td>
+                                <td><?php echo formatDate($invoice['fecha_vencimiento']); ?></td>
+                                <td><?php echo htmlspecialchars($invoice['nombre']); ?></td>
+                                <td>$<?php echo number_format($invoice['saldo_pendiente'], 2, ',', '.'); ?></td>
+                                <td>
+                                    <?php if ($rejection): ?>
+                                        <?php echo htmlspecialchars($rejection['user_name']); ?> (<?php echo ucfirst($rejection['user_role']); ?>)
+                                    <?php else: ?>
+                                        <span class="text-muted">No disponible</span>
                                     <?php endif; ?>
-                                </p>
-                            </div>
-                        <?php else: ?>
-                            <div class="alert alert-info">
-                                <i class="fas fa-info-circle me-2"></i>
-                                No hay facturas rechazadas
-                                <?php if (!empty($filter_supplier) || !empty($filter_date_from) || !empty($filter_date_to) || !empty($filter_rejected_by)): ?>
-                                    con los filtros aplicados.
-                                <?php else: ?>
-                                    en el sistema.
-                                <?php endif; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
+                                </td>
+                                <td>
+                                    <?php if ($rejection): ?>
+                                        <?php echo formatDateTime($rejection['rejection_date']); ?>
+                                    <?php else: ?>
+                                        <span class="text-muted">No disponible</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($rejection && !empty($rejection['rejection_reason'])): ?>
+                                        <span class="d-inline-block text-truncate" style="max-width: 150px;" data-bs-toggle="tooltip" title="<?php echo htmlspecialchars($rejection['rejection_reason']); ?>">
+                                            <?php echo htmlspecialchars($rejection['rejection_reason']); ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="text-muted">No disponible</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <div class="action-buttons d-flex gap-2">
+                                        <a href="view_invoice.php?docnum_interno_sap=<?php echo $invoice['docnum_interno_sap']; ?>" class="btn btn-info btn-sm" title="Ver detalles">
+                                            <i class="fas fa-eye"></i> Ver
+                                        </a>
+                                        <?php if (in_array($role, ['admin', 'gerente', 'contador', 'Preparador'])): ?>
+                                            <button type="button" class="btn btn-warning btn-sm correct-invoice-btn" 
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#correctInvoiceModal" 
+                                                    data-invoice-id="<?php echo $invoice['docnum_interno_sap']; ?>"
+                                                    data-invoice-supplier="<?php echo htmlspecialchars($invoice['nombre']); ?>"
+                                                    title="Corregir factura">
+                                                <i class="fas fa-edit me-1"></i> Corregir
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-3">
+                <p class="text-muted">
+                    <i class="fas fa-list me-1"></i> Mostrando <?php echo count($filtered_invoices); ?> facturas rechazadas
+                    <?php if (!empty($filter_supplier) || !empty($filter_date_from) || !empty($filter_date_to) || !empty($filter_rejected_by)): ?>
+                        con los filtros aplicados
+                    <?php endif; ?>
+                </p>
+            </div>
+        <?php else: ?>
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                No hay facturas rechazadas
+                <?php if (!empty($filter_supplier) || !empty($filter_date_from) || !empty($filter_date_to) || !empty($filter_rejected_by)): ?>
+                    con los filtros aplicados.
+                <?php else: ?>
+                    en el sistema.
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
                 
                 <!-- Instrucciones para cambiar estado -->
                 <div class="card shadow-sm mt-4">
