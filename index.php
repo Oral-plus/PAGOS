@@ -18,52 +18,44 @@ $role = $user['role'];
 function getDaysStatusAndColor($dias_vencido) {
     $dias = (int)trim($dias_vencido);
     
-    // LÓGICA CORREGIDA:
-    // Si dias_vencido es POSITIVO = días que faltan para vencer (futuro)
-    // Si dias_vencido es NEGATIVO = días que lleva vencida (pasado)
-    // Si dias_vencido es 0 = vence hoy
-    
     if ($dias < 0) {
-        // Factura vencida (días negativos = días de atraso)
-        $dias_vencidos = abs($dias); // Convertir a positivo para mostrar días de atraso
+        $dias_vencidos = abs($dias);
         
         if ($dias_vencidos <= 15) {
             return [
-                'color' => '#ff9800', // Naranja
+                'color' => '#ff9800',
                 'mensaje' => '(Mora leve - ' . $dias_vencidos . ' días)',
                 'class' => 'mora-leve'
             ];
         } elseif ($dias_vencidos <= 30) {
             return [
-                'color' => '#f44336', // Rojo
+                'color' => '#f44336',
                 'mensaje' => '(Mora grave - ' . $dias_vencidos . ' días)',
                 'class' => 'mora-grave'
             ];
         } else {
             return [
-                'color' => '#b71c1c', // Rojo oscuro
+                'color' => '#b71c1c',
                 'mensaje' => '¡MORA CRÍTICA - ' . $dias_vencidos . ' días!',
                 'class' => 'mora-critica'
             ];
         }
     } elseif ($dias == 0) {
-        // Vence hoy
         return [
-            'color' => '#ff5722', // Naranja rojizo
+            'color' => '#ff5722',
             'mensaje' => '(Vence hoy)',
             'class' => 'vence-hoy'
         ];
     } else {
-        // Factura no vencida (días positivos = días restantes para vencer)
         if ($dias <= 7) {
             return [
-                'color' => '#ff9800', // Naranja - próxima a vencer
+                'color' => '#ff9800',
                 'mensaje' => '(Vence en ' . $dias . ' días)',
                 'class' => 'proxima-vencer'
             ];
         } else {
             return [
-                'color' => '#4caf50', // Verde - no vencida
+                'color' => '#4caf50',
                 'mensaje' => '(Vence en ' . $dias . ' días)',
                 'class' => 'no-vencida'
             ];
@@ -245,23 +237,21 @@ function calculateSupplierTotals($invoices) {
     return ['supplier_totals' => $supplier_totals, 'total_value' => $total_value];
 }
 
-// FUNCIÓN MODIFICADA: Obtener facturas filtradas con cálculo correcto de días - AGREGADO PARÁMETRO $today_only
+// <CHANGE> Modificada para excluir facturas con valor 0.00 solo si NO están marcadas como OK
 function getFilteredInvoices1($date_filter, $status_filter, $supplier_filter, $invoice_id_filter, $overdue_days_filter, $is_ok = false, $today_only = false) {
     $conn = getDbConnection();
     $invoices = [];
     
-    // CONSULTA SQL CORREGIDA: 
-    // DATEDIFF(day, GETDATE(), i.fecha_vencimiento) = días hasta vencimiento
-    // Positivo = días que faltan para vencer
-    // Negativo = días que lleva vencida
-    // 0 = vence hoy
     $sql = "SELECT i.*, DATEDIFF(day, GETDATE(), i.fecha_vencimiento) as dias_de_vencido FROM invoices i WHERE 1=1";
     $params = [];
     
     if ($is_ok) {
         $sql .= " AND i.ok = 'ok'";
+        // NO filtrar por saldo_pendiente cuando es OK - permitir facturas con valor 0.00
     } else {
         $sql .= " AND (i.ok IS NULL OR i.ok = '')";
+        // <CHANGE> Solo filtrar facturas con valor 0.00 cuando NO están marcadas como OK
+        $sql .= " AND i.saldo_pendiente > 0";
     }
     
     if ($today_only) {
@@ -289,7 +279,6 @@ function getFilteredInvoices1($date_filter, $status_filter, $supplier_filter, $i
     }
     
     if (!empty($overdue_days_filter)) {
-        // Para filtrar por días específicos de vencimiento
         $sql .= " AND DATEDIFF(day, GETDATE(), i.fecha_vencimiento) = ?";
         $params[] = $overdue_days_filter;
     }
@@ -298,7 +287,6 @@ function getFilteredInvoices1($date_filter, $status_filter, $supplier_filter, $i
     
     try {
         if ($conn instanceof PDO) {
-            // Para MySQL, ajustar la función DATEDIFF
             $sql = str_replace("DATEDIFF(day, GETDATE(), i.fecha_vencimiento)",
                                "DATEDIFF(i.fecha_vencimiento, CURDATE())", $sql);
             $sql = str_replace("GETDATE()", "CURDATE()", $sql);
@@ -330,7 +318,6 @@ function getTodayOkCount() {
     $sql = "SELECT COUNT(*) as count FROM invoices WHERE ok = 'ok' AND CAST(created_at AS DATE) = CAST(GETDATE() AS DATE)";
     
     if ($conn instanceof PDO) {
-        // Para MySQL, ajustar la función GETDATE()
         $sql = str_replace("GETDATE()", "CURDATE()", $sql);
         $sql = str_replace("CAST(GETDATE() AS DATE)", "CURDATE()", $sql);
         
@@ -362,9 +349,18 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 1) {
     $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
     $selected_only = isset($_GET['selected_only']) ? $_GET['selected_only'] === 'true' : false;
     $selected_ids = isset($_GET['selected_ids']) ? explode(',', $_GET['selected_ids']) : [];
-    $today_only = isset($_GET['today_only']) ? $_GET['today_only'] === 'true' : false; // NUEVO
+    $today_only = isset($_GET['today_only']) ? $_GET['today_only'] === 'true' : false;
     
-    $invoices = getFilteredInvoices1($date_filter, $status_filter, $supplier_filter, $invoice_id_filter, $overdue_days_filter, false, $today_only); // AGREGADO PARÁMETRO
+    $hasActiveFilter = !empty($date_filter) || !empty($status_filter) || !empty($supplier_filter) || 
+                       !empty($invoice_id_filter) || !empty($overdue_days_filter) || !empty($search_term) || 
+                       $selected_only || $today_only;
+    
+    if (!$hasActiveFilter) {
+        echo '<tr><td colspan="9" class="text-center text-muted"><i class="fas fa-search me-2"></i>Use los filtros o la búsqueda para cargar facturas</td></tr>';
+        exit();
+    }
+    
+    $invoices = getFilteredInvoices1($date_filter, $status_filter, $supplier_filter, $invoice_id_filter, $overdue_days_filter, false, $today_only);
     
     // Aplicar búsqueda en tiempo real
     if (!empty($search_term)) {
@@ -383,15 +379,18 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 1) {
             return false;
         });
     }
+    
     // Filtrar solo seleccionadas si se solicita
     if ($selected_only && !empty($selected_ids)) {
         $invoices = array_filter($invoices, function($invoice) use ($selected_ids) {
             return in_array($invoice['docnum_interno_sap'], $selected_ids);
         });
     }
+    
     $totals_data = calculateSupplierTotals($invoices);
     $supplier_totals = $totals_data['supplier_totals'];
     $html = '';
+    
     if (count($invoices) > 0) {
         $uniqueInvoices = [];
         $seenDocnums = [];
@@ -403,23 +402,26 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 1) {
                 $uniqueInvoices[] = $invoice;
             }
         }
+        
         usort($uniqueInvoices, function($a, $b) {
             $supplierCompare = strcmp($a['nombre'], $b['nombre']);
             if ($supplierCompare === 0) {
-                return $a['dias_de_vencido'] <=> $b['dias_de_vencido']; // Ordenar por días de vencimiento
+                return $a['dias_de_vencido'] <=> $b['dias_de_vencido'];
             }
             return $supplierCompare;
         });
+        
         $currentSupplier = '';
         foreach ($uniqueInvoices as $invoice) {
             $hasViewed = hasUserViewedInvoice($invoice['docnum_interno_sap'], $user_id);
             $currentPriority = isset($invoice['priority']) ? $invoice['priority'] : 'media';
+            
             if ($currentSupplier !== $invoice['nombre'] && empty($supplier_filter) && !$selected_only) {
                 $currentSupplier = $invoice['nombre'];
                 $supplierTotal = isset($supplier_totals[$currentSupplier]) ? $supplier_totals[$currentSupplier] : ['total' => 0, 'count' => 0];
                 
                 $html .= '<tr class="supplier-header">
-                    <td colspan="8">
+                    <td colspan="9">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <i class="fas fa-building me-2"></i>
@@ -439,6 +441,7 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 1) {
                     </td>
                 </tr>';
             }
+            
             $html .= '<tr data-invoice-id="' . htmlspecialchars($invoice['docnum_interno_sap']) . '" data-invoice-value="' . htmlspecialchars($invoice['saldo_pendiente']) . '" data-invoice-name="' . htmlspecialchars($invoice['nombre']) . '" class="' . (empty($supplier_filter) && !$selected_only ? 'supplier-group' : '') . '">';
             
             $html .= '<td>';
@@ -447,21 +450,19 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 1) {
             $html .= '</div>';
             $html .= '</td>';
             
+            $html .= '<td>' . htmlspecialchars($invoice['numero_factura_proveedor']) . '</td>';
             $html .= '<td>' . htmlspecialchars($invoice['docnum_interno_sap']) . '</td>';
             $html .= '<td>' . htmlspecialchars($invoice['codigo_sn']) . '</td>';
             $html .= '<td>' . htmlspecialchars($invoice['nombre']) . '</td>';
             $html .= '<td>' . formatDate1($invoice['fecha_vencimiento']) . '</td>';
-            // Aplicar la lógica CORREGIDA de días de vencimiento
+            
             $statusInfo = getDaysStatusAndColor($invoice['dias_de_vencido']);
             $html .= '<td style="color: ' . $statusInfo['color'] . '; font-weight: bold;" class="' . $statusInfo['class'] . '">';
             $html .= '<span class="status-indicator ' . $statusInfo['class'] . '"></span>';
             
-            // Mostrar el valor correcto según el estado
             if ($invoice['dias_de_vencido'] < 0) {
-                // Factura vencida - mostrar días de atraso como positivo
                 $html .= '-' . abs($invoice['dias_de_vencido']);
             } else {
-                // Factura vigente o vence hoy - mostrar días restantes
                 $html .= htmlspecialchars($invoice['dias_de_vencido']);
             }
             
@@ -497,9 +498,10 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 1) {
         }
     } else {
         $html .= '<tr>';
-        $html .= '<td colspan="8" class="text-center">No se encontraron facturas pendientes</td>';
+        $html .= '<td colspan="9" class="text-center">No se encontraron facturas pendientes con los criterios especificados</td>';
         $html .= '</tr>';
     }
+    
     echo $html;
     exit();
 }
@@ -515,6 +517,15 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 2) {
     $selected_only = isset($_GET['selected_only']) ? $_GET['selected_only'] === 'true' : false;
     $selected_ids = isset($_GET['selected_ids']) ? explode(',', $_GET['selected_ids']) : [];
     $today_only = isset($_GET['today_only']) ? $_GET['today_only'] === 'true' : false;
+    
+    $hasActiveFilter = !empty($date_filter) || !empty($status_filter) || !empty($supplier_filter) || 
+                       !empty($invoice_id_filter) || !empty($overdue_days_filter) || !empty($search_term) || 
+                       $selected_only || $today_only;
+    
+    if (!$hasActiveFilter) {
+        echo '<tr><td colspan="9" class="text-center text-muted"><i class="fas fa-search me-2"></i>Use los filtros o la búsqueda para cargar facturas OK</td></tr>';
+        exit();
+    }
     
     $ok_invoices = getFilteredInvoices1($date_filter, $status_filter, $supplier_filter, $invoice_id_filter, $overdue_days_filter, true, $today_only);
     
@@ -548,6 +559,12 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 2) {
     $html = '';
     
     if (count($ok_invoices) > 0) {
+        $unique_invoices = [];
+        foreach ($ok_invoices as $invoice) {
+            $unique_invoices[$invoice['docnum_interno_sap']] = $invoice;
+        }
+        $ok_invoices = array_values($unique_invoices);
+        
         usort($ok_invoices, function($a, $b) {
             $supplierCompare = strcmp($a['nombre'], $b['nombre']);
             if ($supplierCompare === 0) {
@@ -556,20 +573,23 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 2) {
             return $supplierCompare;
         });
         
-        $currentSupplier = '';
+        $currentOkSupplier = '';
+        $totalGeneralOk = 0;
+        $countOk = 0;
+        
         foreach ($ok_invoices as $invoice) {
             $currentPriority = isset($invoice['priority']) ? $invoice['priority'] : 'media';
             
-            if ($currentSupplier !== $invoice['nombre'] && empty($supplier_filter) && !$selected_only) {
-                $currentSupplier = $invoice['nombre'];
-                $supplierTotal = isset($supplier_totals_ok[$currentSupplier]) ? $supplier_totals_ok[$currentSupplier] : ['total' => 0, 'count' => 0];
+            if ($currentOkSupplier !== $invoice['nombre'] && empty($supplier_filter) && !$selected_only) {
+                $currentOkSupplier = $invoice['nombre'];
+                $supplierTotal = isset($supplier_totals_ok[$currentOkSupplier]) ? $supplier_totals_ok[$currentOkSupplier] : ['total' => 0, 'count' => 0];
                 
                 $html .= '<tr class="supplier-header">
-                    <td colspan="8">
+                    <td colspan="9">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <i class="fas fa-building me-2"></i>
-                                <strong>' . htmlspecialchars($currentSupplier) . '</strong>
+                                <strong>' . htmlspecialchars($currentOkSupplier) . '</strong>
                             </div>
                             <div>
                                 <span class="supplier-count-badge me-2">
@@ -586,7 +606,11 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 2) {
                 </tr>';
             }
             
-            $html .= '<tr data-invoice-id="' . htmlspecialchars($invoice['docnum_interno_sap']) . '" data-invoice-value="' . htmlspecialchars($invoice['saldo_pendiente']) . '" data-invoice-name="' . htmlspecialchars($invoice['nombre']) . '" class="' . (empty($supplier_filter) && !$selected_only ? 'supplier-group' : '') . '">';
+            $statusInfo = getDaysStatusAndColor($invoice['dias_de_vencido']);
+            $totalGeneralOk += $invoice['saldo_pendiente'];
+            $countOk++;
+            
+            $html .= '<tr data-invoice-id="' . htmlspecialchars($invoice['docnum_interno_sap']) . '" data-invoice-value="' . htmlspecialchars($invoice['saldo_pendiente']) . '" data-invoice-name="' . htmlspecialchars($invoice['nombre']) . '" class="' . (empty($supplier_filter) && !$selected_only ? 'supplier-group ' . $statusInfo['class'] : $statusInfo['class']) . '">';
             
             $html .= '<td>';
             $html .= '<div class="form-check">';
@@ -594,23 +618,19 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 2) {
             $html .= '</div>';
             $html .= '</td>';
             
+            $html .= '<td>' . htmlspecialchars($invoice['numero_factura_proveedor']) . '</td>';
             $html .= '<td>' . htmlspecialchars($invoice['docnum_interno_sap']) . '</td>';
             $html .= '<td>' . htmlspecialchars($invoice['codigo_sn']) . '</td>';
             $html .= '<td>' . htmlspecialchars($invoice['nombre']) . '</td>';
             $html .= '<td>' . formatDate1($invoice['fecha_vencimiento']) . '</td>';
             
-            // Aplicar la lógica CORREGIDA de días de vencimiento
-            $statusInfo = getDaysStatusAndColor($invoice['dias_de_vencido']);
             $html .= '<td style="color: ' . $statusInfo['color'] . '; font-weight: bold;" class="' . $statusInfo['class'] . '">';
             $html .= '<span class="status-indicator ' . $statusInfo['class'] . '"></span>';
             
-            // Mostrar el valor correcto según el estado
             if ($invoice['dias_de_vencido'] < 0) {
-                // Factura vencida - mostrar días de atraso como positivo
                 $html .= '-' . abs($invoice['dias_de_vencido']);
             } else {
-                // Factura vigente o vence hoy - mostrar días restantes
-                $html .= htmlspecialchars($invoice['dias_de_vencido']);
+                $html .= '+' . $invoice['dias_de_vencido'];
             }
             
             if ($statusInfo['mensaje']) {
@@ -630,73 +650,20 @@ if(isset($_GET['ajax']) && $_GET['ajax'] == 2) {
             $html .= '</td>';
             $html .= '</tr>';
         }
+        
+        $html .= '<tr class="table-success fw-bold">
+            <td colspan="7" class="text-end">TOTAL GENERAL (' . $countOk . ' facturas):</td>
+            <td>$' . number_format($totalGeneralOk, 2, ',', '.') . '</td>
+            <td></td>
+        </tr>';
     } else {
-        if (!$today_only) {
-            $html .= '<tr>';
-            $html .= '<td colspan="8" class="text-center">No hay facturas marcadas como OK</td>';
-            $html .= '</tr>';
-        }
+        $html .= '<tr>';
+        $html .= '<td colspan="9" class="text-center">No se encontraron facturas OK con los criterios especificados</td>';
+        $html .= '</tr>';
     }
+    
     echo $html;
     exit();
-}
-
-// Para la carga inicial de la página
-$date_filter = isset($_GET['date']) ? trim($_GET['date']) : '';
-$status_filter = isset($_GET['status']) ? trim($_GET['status']) : '';
-$supplier_filter = isset($_GET['supplier']) ? trim($_GET['supplier']) : '';
-$invoice_id_filter = isset($_GET['invoice_id']) ? trim($_GET['invoice_id']) : '';
-$overdue_days_filter = isset($_GET['overdue_days']) ? trim($_GET['overdue_days']) : '';
-$today_only = isset($_GET['today_only']) ? $_GET['today_only'] === 'true' : false; // NUEVO
-
-$pending_invoices = getFilteredInvoices1($date_filter, $status_filter, $supplier_filter, $invoice_id_filter, $overdue_days_filter, false, $today_only); // AGREGADO PARÁMETRO
-$ok_invoices = getFilteredInvoices1($date_filter, $status_filter, $supplier_filter, $invoice_id_filter, $overdue_days_filter, true, $today_only); // AGREGADO PARÁMETRO
-
-$pending_totals_data = calculateSupplierTotals($pending_invoices);
-$supplier_totals_pending = $pending_totals_data['supplier_totals'];
-$total_pending_value = $pending_totals_data['total_value'];
-
-$ok_totals_data = calculateSupplierTotals($ok_invoices);
-$supplier_totals_ok = $ok_totals_data['supplier_totals'];
-$total_ok_value = $ok_totals_data['total_value'];
-
-function recordInvoiceView($invoice_id, $user_id) {
-    $conn = getDbConnection();
-    
-    $sql_check = "SELECT COUNT(*) as count FROM invoice_views WHERE invoice_id = ? AND user_id = ?";
-    $params = array($invoice_id, $user_id);
-    
-    if ($conn instanceof PDO) {
-        $stmt = $conn->prepare($sql_check);
-        $stmt->execute($params);
-        $result = $stmt->fetch();
-        
-        if ($result['count'] == 0) {
-            $sql_insert = "INSERT INTO invoice_views (invoice_id, user_id, view_date) VALUES (?, ?, ?)";
-            $params_insert = array($invoice_id, $user_id, date('Y-m-d H:i:s'));
-            
-            $stmt = $conn->prepare($sql_insert);
-            $stmt->execute($params_insert);
-        }
-    } else {
-        $stmt = sqlsrv_query($conn, $sql_check, $params);
-        if ($stmt === false) {
-            throw new Exception("Error en la consulta: " . print_r(sqlsrv_errors(), true));
-        }
-        
-        $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
-        sqlsrv_free_stmt($stmt);
-        
-        if ($row['count'] == 0) {
-            $sql_insert = "INSERT INTO invoice_views (invoice_id, user_id, view_date) VALUES (?, ?, ?)";
-            $params_insert = array($invoice_id, $user_id, date('Y-m-d H:i:s'));
-            
-            $stmt = sqlsrv_query($conn, $sql_insert, $params_insert);
-            if ($stmt === false) {
-                throw new Exception("Error al insertar: " . print_r(sqlsrv_errors(), true));
-            }
-        }
-    }
 }
 
 // Función para formatear fechas
@@ -718,7 +685,7 @@ function formatDate1($date) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="assets/65x45.png" type="image/x-icon">
-    <title>Sistema de Aprobación de Facturas</title>
+    <title>Sistema de Aprobación de Facturas - Optimizado</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/styles.css">
@@ -991,15 +958,6 @@ function formatDate1($date) {
             margin-bottom: 20px;
         }
         
-        /* Added today OK counter display */
-        .search-container {
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-        
         .search-input {
             border: 2px solid #e9ecef;
             border-radius: 25px;
@@ -1048,7 +1006,6 @@ function formatDate1($date) {
             border-color: #007bff;
         }
         
-        /* ESTILOS CORREGIDOS para los estados de vencimiento */
         .no-vencida {
             background-color: rgba(76, 175, 80, 0.1);
             border-left: 4px solid #4caf50;
@@ -1108,7 +1065,6 @@ function formatDate1($date) {
             100% { opacity: 1; }
         }
         
-        /* Indicadores visuales adicionales */
         .status-indicator {
             display: inline-block;
             width: 8px;
@@ -1143,7 +1099,6 @@ function formatDate1($date) {
             animation: parpadeo-critico 1.5s infinite;
         }
         
-        /* Alerta especial para explicar la corrección */
         .correction-alert {
             background: linear-gradient(135deg, #e3f2fd, #bbdefb);
             border: 2px solid #2196f3;
@@ -1167,7 +1122,6 @@ function formatDate1($date) {
             margin-bottom: 5px;
         }
         
-        /* Added CSS for today OK counter */
         .today-ok-counter .card {
             min-width: 120px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -1177,6 +1131,25 @@ function formatDate1($date) {
         .today-ok-counter .card:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        
+        .optimization-notice {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            border: 2px solid #ffc107;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 8px rgba(255, 193, 7, 0.2);
+        }
+        
+        .optimization-notice h5 {
+            color: #ff8f00;
+            margin-bottom: 10px;
+        }
+        
+        .optimization-notice p {
+            margin-bottom: 0;
+            color: #f57c00;
         }
     </style>
 </head>
@@ -1189,13 +1162,24 @@ function formatDate1($date) {
             
             <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
                 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-                    <h1 class="h2">Panel de Control - Sistema Corregido</h1>
+                    <h1 class="h2">
+                        <i class="fas fa-tachometer-alt me-2"></i>
+                        Panel de Control - Optimizado
+                    </h1>
                     <?php if (in_array($role, ['admin','Preparador'])): ?>
-                      
                         <a href="export_excel.php" class="btn btn-success">
                             <i class="fas fa-file-excel me-2"></i> Exportar a Excel
                         </a>
                     <?php endif; ?>
+                </div>
+                
+                <div class="optimization-notice">
+                    <h5><i class="fas fa-rocket me-2"></i>Sistema Optimizado para Carga Rápida</h5>
+                    <p>
+                        <i class="fas fa-info-circle me-2"></i>
+                        Las facturas se cargan solo cuando usas los filtros o la búsqueda. Esto hace que la página cargue mucho más rápido.
+                        <strong>Usa la búsqueda o los filtros para ver las facturas.</strong>
+                    </p>
                 </div>
                 
                 <?php if (isset($_SESSION['success_message'])): ?>
@@ -1214,7 +1198,6 @@ function formatDate1($date) {
                     <?php unset($_SESSION['error_message']); ?>
                 <?php endif; ?>
                 
-                <!-- Sección de facturas seleccionadas -->
                 <div id="selectedInvoicesSection" class="selected-invoices-section" style="display: none;">
                     <div class="selected-invoices-header">
                         <h5 class="selected-invoices-title">
@@ -1257,51 +1240,15 @@ function formatDate1($date) {
                     </div>
                 </div>
                 
-                <!-- Búsqueda en tiempo real -->
-                <div class="search-container">
-                    <!-- Added today OK counter display -->
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <div class="position-relative flex-grow-1 me-3">
-                            <i class="fas fa-search search-icon"></i>
-                            <input 
-                                type="text" 
-                                class="form-control search-input" 
-                                id="realTimeSearch" 
-                                placeholder="Buscar por ID, código o proveedor en tiempo real..."
-                                autocomplete="off"
-                            >
-                        </div>
-                        <div class="today-ok-counter">
-                            <div class="card border-success">
-                                <div class="card-body text-center py-2 px-3">
-                                    <div class="d-flex align-items-center">
-                                        <i class="fas fa-check-circle text-success me-2"></i>
-                                        <div>
-                                            <div class="fw-bold text-success fs-4"><?php echo $today_ok_count; ?></div>
-                                            <small class="text-muted">OK Hoy</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <small class="text-muted mt-2 d-block">
-                        <i class="fas fa-info-circle me-1"></i>
-                        La búsqueda se actualiza automáticamente mientras escribes
-                    </small>
-                </div>
-                
-                <!-- Filtros -->
                 <div class="card mb-4 shadow-sm">
                     <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0">Filtros</h5>
+                        <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filtros</h5>
                     </div>
                     <div class="card-body">
-                        <!-- Actualizado: Checkbox para filtrar facturas marcadas como OK hoy -->
                         <div class="row mb-3">
                             <div class="col-12">
                                 <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" id="todayOnlyFilter" <?php echo $today_only ? 'checked' : ''; ?>>
+                                    <input class="form-check-input" type="checkbox" id="todayOnlyFilter">
                                     <label class="form-check-label fw-bold text-success" for="todayOnlyFilter">
                                         <i class="fas fa-calendar-check me-2"></i>
                                         Mostrar solo facturas marcadas como OK hoy (<?php echo date('d/m/Y'); ?>)
@@ -1317,75 +1264,56 @@ function formatDate1($date) {
                         <form id="filter-form" class="row g-3">
                             <div class="col-md-2">
                                 <label for="invoice_id" class="form-label">Número de Factura</label>
-                                <input type="text" class="form-control filter-field" id="invoice_id" name="invoice_id" value="<?php echo htmlspecialchars($invoice_id_filter); ?>" placeholder="ID exacto">
+                                <input type="text" class="form-control filter-field" id="invoice_id" name="invoice_id" placeholder="ID exacto">
                             </div>
                             <div class="col-md-2">
                                 <label for="date" class="form-label">Fecha</label>
-                                <input type="date" class="form-control filter-field" id="date" name="date" value="<?php echo htmlspecialchars($date_filter); ?>">
-                            </div>
-                            <div class="col-md-3">
-                                <label for="status" class="form-label">Estado</label>
-                                <select class="form-select filter-field" id="status" name="status">
-                                    <option value="">Todos</option>
-                                    <option value="pendiente" <?php echo $status_filter == 'pendiente' ? 'selected' : ''; ?>>Pendiente</option>
-                                    <option value="aprobado_subgerente" <?php echo $status_filter == 'aprobado_subgerente' ? 'selected' : ''; ?>>Aprobado por Subgerente</option>
-                                    <option value="aprobado_gerente" <?php echo $status_filter == 'aprobado_gerente' ? 'selected' : ''; ?>>Aprobado por Gerente</option>
-                                    <option value="aprobado_contador" <?php echo $status_filter == 'aprobado_contador' ? 'selected' : ''; ?>>Aprobado por Contador</option>
-                                    <option value="completado" <?php echo $status_filter == 'completado' ? 'selected' : ''; ?>>Completado</option>
-                                    <option value="rechazado" <?php echo $status_filter == 'rechazado' ? 'selected' : ''; ?>>Rechazado</option>
-                                </select>
+                                <input type="date" class="form-control filter-field" id="date" name="date">
                             </div>
                             <div class="col-md-3">
                                 <label for="supplier" class="form-label">Proveedor</label>
-                                <input type="text" class="form-control filter-field" id="supplier" name="supplier" value="<?php echo htmlspecialchars($supplier_filter); ?>" placeholder="Nombre proveedor">
+                                <input type="text" class="form-control filter-field" id="supplier" name="supplier" placeholder="Nombre proveedor">
                             </div>
                             <div class="col-md-2">
                                 <label for="overdue_days" class="form-label">Días Vencidos</label>
-                                <input type="number" class="form-control filter-field" id="overdue_days" name="overdue_days" value="<?php echo htmlspecialchars($overdue_days_filter); ?>" placeholder="Días exactos">
+                                <input type="number" class="form-control filter-field" id="overdue_days" name="overdue_days" placeholder="Días exactos">
                             </div>
                             <div class="col-md-12 d-flex justify-content-end">
-                                <button type="button" id="clear-filters" class="btn btn-secondary">Limpiar</button>
-                                <button type="button" id="apply-filters" class="btn btn-primary ms-2">Aplicar Filtros</button>
+                                <button type="button" id="clear-filters" class="btn btn-secondary">
+                                    <i class="fas fa-eraser me-1"></i> Limpiar
+                                </button>
+                                <button type="button" id="apply-filters" class="btn btn-primary ms-2">
+                                    <i class="fas fa-search me-1"></i> Aplicar Filtros
+                                </button>
                             </div>
                         </form>
                     </div>
                 </div>
                 
-                <!-- Pestañas para las tablas -->
                 <ul class="nav nav-tabs mb-3" id="invoiceTabs" role="tablist">
                     <li class="nav-item" role="presentation">
                         <button class="nav-link active" id="pending-tab" data-bs-toggle="tab" data-bs-target="#pending-invoices" type="button" role="tab" aria-controls="pending-invoices" aria-selected="true">
+                            <i class="fas fa-clock me-2"></i>
                             <span id="pending-tab-title">Facturas Pendientes</span>
-                            <span class="badge bg-warning text-dark ms-2" id="pending-count">
-                                <?php
-                                $uniqueInvoices = [];
-                                $seenDocNums = [];
-                                foreach ($pending_invoices as $invoice) {
-                                    if (!in_array($invoice['docnum_interno_sap'], $seenDocNums)) {
-                                        $uniqueInvoices[] = $invoice;
-                                        $seenDocNums[] = $invoice['docnum_interno_sap'];
-                                    }
-                                }
-                                echo count($uniqueInvoices);
-                                ?>
-                            </span>
+                            <span class="badge bg-warning text-dark ms-2" id="pending-count">0</span>
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
                         <button class="nav-link" id="ok-tab" data-bs-toggle="tab" data-bs-target="#ok-invoices" type="button" role="tab" aria-controls="ok-invoices" aria-selected="false">
+                            <i class="fas fa-check-circle me-2"></i>
                             <span id="ok-tab-title">Facturas Marcadas como OK</span>
-                            <span class="badge bg-success ms-2" id="ok-count"><?php echo count($ok_invoices); ?></span>
+                            <span class="badge bg-success ms-2" id="ok-count">0</span>
                         </button>
                     </li>
                 </ul>
                 
                 <div class="tab-content" id="invoiceTabsContent">
-                    <!-- Tabla de Facturas Pendientes -->
                     <div class="tab-pane fade show active" id="pending-invoices" role="tabpanel" aria-labelledby="pending-tab">
                         <div class="card shadow-sm">
                             <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                                 <h5 class="mb-0">
-                                    Facturas Pendientes - Cálculo Corregido
+                                    <i class="fas fa-list me-2"></i>
+                                    Facturas Pendientes
                                 </h5>
                                 <div id="pending-results-count" class="text-white"></div>
                             </div>
@@ -1401,114 +1329,24 @@ function formatDate1($date) {
                                         <thead class="table-light">
                                             <tr>
                                                 <th></th>
+                                                <th>Número Factura</th>
                                                 <th>ID</th>
-                                                <th>Numero factura</th>
                                                 <th>Código</th>
-                                                <th>Proveedor <i class="fas fa-sort-alpha-down text-primary" title="Ordenado alfabéticamente"></i></th>
+                                                <th>Proveedor</th>
                                                 <th>Fecha Vencimiento</th>
-                                                <th>Días vencidos <i class="fas fa-info-circle text-info" title="Negativo=vencida, Positivo=vigente"></i></th>
+                                                <th>Días vencidos</th>
                                                 <th>Valor</th>
                                                 <th>Acciones</th>
                                             </tr>
                                         </thead>
                                         <tbody id="pending-table-body">
-                                            <?php
-                                            if (count($uniqueInvoices) > 0):
-                                                usort($uniqueInvoices, function($a, $b) {
-                                                    $supplierCompare = strcmp($a['nombre'], $b['nombre']);
-                                                    if ($supplierCompare === 0) {
-                                                        return $a['dias_de_vencido'] <=> $b['dias_de_vencido'];
-                                                    }
-                                                    return $supplierCompare;
-                                                });
-                                                
-                                                $currentSupplier = '';
-                                                foreach ($uniqueInvoices as $invoice):
-                                                    $hasViewed = hasUserViewedInvoice($invoice['docnum_interno_sap'], $user_id);
-                                                    $currentPriority = isset($invoice['priority']) ? $invoice['priority'] : 'media';
-                                                    
-                                                    if ($currentSupplier !== $invoice['nombre'] && empty($supplier_filter)) {
-                                                        $currentSupplier = $invoice['nombre'];
-                                                        $supplierTotal = isset($supplier_totals_pending[$currentSupplier]) ? $supplier_totals_pending[$currentSupplier] : ['total' => 0, 'count' => 0];
-                                                        echo '<tr class="supplier-header">
-                                                                <td colspan="8">
-                                                                    <div class="d-flex justify-content-between align-items-center">
-                                                                        <div>
-                                                                            <i class="fas fa-building me-2"></i>
-                                                                            <strong>' . htmlspecialchars($currentSupplier) . '</strong>
-                                                                        </div>
-                                                                        <div>
-                                                                            <span class="supplier-count-badge me-2">
-                                                                                <i class="fas fa-file-invoice me-1"></i>
-                                                                                ' . $supplierTotal['count'] . ' facturas
-                                                                            </span>
-                                                                            <span class="supplier-total-badge">
-                                                                                <i class="fas fa-dollar-sign me-1"></i>
-                                                                                $' . number_format($supplierTotal['total'], 2, ',', '.') . '
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                </td>
-                                                              </tr>';
-                                                    }
-                                                    
-                                                    // Obtener información del estado de vencimiento CORREGIDA
-                                                    $statusInfo = getDaysStatusAndColor($invoice['dias_de_vencido']);
-                                                    ?>
-                                                    <tr data-invoice-id="<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>" data-invoice-value="<?php echo htmlspecialchars($invoice['saldo_pendiente']); ?>" data-invoice-name="<?php echo htmlspecialchars($invoice['nombre']); ?>" class="<?php echo (empty($supplier_filter)) ? 'supplier-group ' . $statusInfo['class'] : $statusInfo['class']; ?>">
-                                                        <td>
-                                                            <div class="form-check">
-                                                                <input type="checkbox" class="form-check-input invoice-checkbox" id="check_<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>">
-                                                            </div>
-                                                        </td>
-                                                        <td><?php echo htmlspecialchars($invoice['numero_factura_proveedor']); ?></td>
-                                                        <td><?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?></td>
-                                                        <td><?php echo htmlspecialchars($invoice['codigo_sn']); ?></td>
-                                                        <td><?php echo htmlspecialchars($invoice['nombre']); ?></td>
-                                                        <td><?php echo formatDate1($invoice['fecha_vencimiento']); ?></td>
-                                                        <td style="color: <?= $statusInfo['color'] ?>; font-weight: bold;" class="<?= $statusInfo['class'] ?>">
-                                                            <span class="status-indicator <?= $statusInfo['class'] ?>"></span>
-                                                            <?php
-                                                            // Mostrar el valor correcto según el estado
-                                                            if ($invoice['dias_de_vencido'] < 0) {
-                                                                // Factura vencida - mostrar días de atraso como negativo
-                                                                echo $invoice['dias_de_vencido'];
-                                                            } else {
-                                                                // Factura vigente o vence hoy - mostrar días restantes como positivo
-                                                                echo '+' . $invoice['dias_de_vencido'];
-                                                            }
-                                                            ?>
-                                                            <?php if ($statusInfo['mensaje']): ?>
-                                                                <span class="mensaje-alerta <?= ($statusInfo['class'] === 'mora-critica') ? 'alerta-critica' : '' ?>"><?= $statusInfo['mensaje'] ?></span>
-                                                            <?php endif; ?>
-                                                        </td>
-                                                        <td>$<?php echo number_format($invoice['saldo_pendiente'], 2, ',', '.'); ?></td>
-                                                        <td>
-                                                            <div class="btn-group">
-                                                                <a href="view_invoice.php?docnum_interno_sap=<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>" class="btn btn-sm btn-info" title="Ver detalles">
-                                                                    <i class="fas fa-eye"></i>
-                                                                </a>
-                                                                <?php if ($hasViewed): ?>
-                                                                    <button type="button" class="btn btn-sm btn-outline-success mark-ok-btn"
-                                                                        data-invoice-id="<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>"
-                                                                        data-priority="<?php echo $currentPriority; ?>"
-                                                                        title="Marcar como OK">
-                                                                        <i class="fas fa-check"></i>
-                                                                    </button>
-                                                                <?php else: ?>
-                                                                    <button class="btn btn-sm btn-outline-secondary" disabled title="Ver detalles primero">
-                                                                        <i class="fas fa-check"></i>
-                                                                    </button>
-                                                                <?php endif; ?>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                <?php endforeach; ?>
-                                            <?php else: ?>
-                                                <tr>
-                                                    <td colspan="8" class="text-center">No se encontraron facturas pendientes</td>
-                                                </tr>
-                                            <?php endif; ?>
+                                            <tr>
+                                                <td colspan="9" class="text-center text-muted py-5">
+                                                    <i class="fas fa-search fa-3x mb-3 d-block"></i>
+                                                    <h5>Use los filtros o la búsqueda para cargar facturas</h5>
+                                                    <p>Las facturas se cargarán automáticamente cuando busque o aplique filtros</p>
+                                                </td>
+                                            </tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -1516,164 +1354,56 @@ function formatDate1($date) {
                         </div>
                     </div>
                     
-                    <!-- Tabla de Facturas Marcadas como OK -->
                     <div class="tab-pane fade" id="ok-invoices" role="tabpanel" aria-labelledby="ok-tab">
-    <div class="card shadow-sm">
-        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">
-                Facturas Marcadas como OK - Cálculo Corregido
-                <span class="badge bg-light text-dark ms-2">
-                    <i class="fas fa-sort-alpha-down me-1"></i>Ordenadas por proveedor
-                </span>
-            </h5>
-            <div id="ok-results-count" class="text-white"></div>
-        </div>
-        <div class="card-body position-relative">
-            <div class="loading-overlay" id="ok-loading">
-                <div class="spinner-border text-success" role="status">
-                    <span class="visually-hidden">Cargando...</span>
-                </div>
-            </div>
-            
-            <div class="table-responsive">
-                <table class="table table-striped table-hover">
-                    <thead class="table-light">
-                        <tr>
-                            <th></th>
-                            <th>ID</th>
-                            <th>Numero Factura</th>
-                            <th>Código</th>
-                            <th>Proveedor <i class="fas fa-sort-alpha-down text-success" title="Ordenado alfabéticamente"></i></th>
-                            <th>Fecha Vencimiento</th>
-                            <th>Días vencidos <i class="fas fa-info-circle text-info" title="Negativo=vencida, Positivo=vigente"></i></th>
-                            <th>Valor</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ok-table-body">
-                        <?php if (count($ok_invoices) > 0): ?>
-                            <?php
-                            // 1️⃣ Eliminar facturas duplicadas por docnum_interno_sap
-                            $unique_invoices = [];
-                            foreach ($ok_invoices as $invoice) {
-                                $unique_invoices[$invoice['docnum_interno_sap']] = $invoice;
-                            }
-                            $ok_invoices = array_values($unique_invoices);
-
-                            // 2️⃣ Ordenar por proveedor y días de vencido
-                            usort($ok_invoices, function($a, $b) {
-                                $supplierCompare = strcmp($a['nombre'], $b['nombre']);
-                                if ($supplierCompare === 0) {
-                                    return $a['dias_de_vencido'] <=> $b['dias_de_vencido'];
-                                }
-                                return $supplierCompare;
-                            });
-
-                            $currentOkSupplier = '';
-                            $totalGeneralOk = 0; // 🔹 acumulador del total
-                            $countOk = 0;        // 🔹 acumulador de facturas
-                            ?>
-                            <?php foreach ($ok_invoices as $invoice): ?>
-                                <?php
-                                $currentPriority = isset($invoice['priority']) ? $invoice['priority'] : 'media';
+                        <div class="card shadow-sm">
+                            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-check-double me-2"></i>
+                                    Facturas Marcadas como OK
+                                </h5>
+                                <div id="ok-results-count" class="text-white"></div>
+                            </div>
+                            <div class="card-body position-relative">
+                                <div class="loading-overlay" id="ok-loading">
+                                    <div class="spinner-border text-success" role="status">
+                                        <span class="visually-hidden">Cargando...</span>
+                                    </div>
+                                </div>
                                 
-                                if ($currentOkSupplier !== $invoice['nombre'] && empty($supplier_filter)) {
-                                    $currentOkSupplier = $invoice['nombre'];
-                                    $supplierTotal = isset($supplier_totals_ok[$currentOkSupplier]) ? $supplier_totals_ok[$currentOkSupplier] : ['total' => 0, 'count' => 0];
-                                    echo '<tr class="supplier-header">
-                                            <td colspan="8">
-                                                <div class="d-flex justify-content-between align-items-center">
-                                                    <div>
-                                                        <i class="fas fa-building me-2"></i>50l0
-                                                        <strong>' . htmlspecialchars($currentOkSupplier) . '</strong>
-                                                    </div>
-                                                    <div>
-                                                        <span class="supplier-count-badge me-2">
-                                                            <i class="fas fa-check-circle me-1"></i>
-                                                            ' . $supplierTotal['count'] . ' OK
-                                                        </span>
-                                                        <span class="supplier-total-badge">
-                                                            <i class="fas fa-dollar-sign me-1"></i>
-                                                            $' . number_format($supplierTotal['total'], 2, ',', '.') . '
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                        </tr>';
-                                }
-
-                                // Estado de vencimiento
-                                $statusInfo = getDaysStatusAndColor($invoice['dias_de_vencido']);
-
-                                // 🔹 Acumular total general
-                                $totalGeneralOk += $invoice['saldo_pendiente'];
-                                $countOk++;
-                                ?>
-                                <tr data-invoice-id="<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>" 
-                                    data-invoice-value="<?php echo htmlspecialchars($invoice['saldo_pendiente']); ?>" 
-                                    data-invoice-name="<?php echo htmlspecialchars($invoice['nombre']); ?>" 
-                                    class="<?php echo (empty($supplier_filter)) ? 'supplier-group ' . $statusInfo['class'] : $statusInfo['class']; ?>">
-                                    <td>
-                                        <div class="form-check">
-                                            <input type="checkbox" class="form-check-input invoice-checkbox-ok" id="check_ok_<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>">
-                                        </div>
-                                    </td>
-                                    <td><?php echo htmlspecialchars($invoice['numero_factura_proveedor']); ?></td>
-                                    <td><?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?></td>
-                                    <td><?php echo htmlspecialchars($invoice['codigo_sn']); ?></td>
-                                    
-                                    <td><?php echo htmlspecialchars($invoice['nombre']); ?></td>
-                                    <td><?php echo formatDate1($invoice['fecha_vencimiento']); ?></td>
-                                    <td style="color: <?= $statusInfo['color'] ?>; font-weight: bold;" class="<?= $statusInfo['class'] ?>">
-                                        <span class="status-indicator <?= $statusInfo['class'] ?>"></span>
-                                        <?php
-                                        if ($invoice['dias_de_vencido'] < 0) {
-                                            echo $invoice['dias_de_vencido']; // vencida
-                                        } else {
-                                            echo '+' . $invoice['dias_de_vencido']; // vigente
-                                        }
-                                        ?>
-                                        <?php if ($statusInfo['mensaje']): ?>
-                                            <span class="mensaje-alerta <?= ($statusInfo['class'] === 'mora-critica') ? 'alerta-critica' : '' ?>"><?= $statusInfo['mensaje'] ?></span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>$<?php echo number_format($invoice['saldo_pendiente'], 2, ',', '.'); ?></td>
-                                    <td>
-                                        <div class="btn-group">
-                                            <a href="view_invoice.php?docnum_interno_sap=<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>" class="btn btn-sm btn-info" title="Ver detalles">
-                                                <i class="fas fa-eye"></i>
-                                            </a>
-                                            <span class="badge bg-success ms-2">OK</span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-
-                            <!-- 🔹 Total General -->
-                            <tr class="table-success fw-bold">
-                                <td colspan="7" class="text-end">TOTAL GENERAL (<?php echo $countOk; ?> facturas):</td>
-                                <td>$<?php echo number_format($totalGeneralOk, 2, ',', '.'); ?></td>
-                                <td></td>
-                            </tr>
-
-                        <?php else: ?>
-                            <tr>
-                                <td colspan="8" class="text-center">No hay facturas marcadas como OK</td>
-                            </tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
-
+                                <div class="table-responsive">
+                                    <table class="table table-striped table-hover">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th></th>
+                                                <th>Número Factura</th>
+                                                <th>ID</th>
+                                                <th>Código</th>
+                                                <th>Proveedor</th>
+                                                <th>Fecha Vencimiento</th>
+                                                <th>Días vencidos</th>
+                                                <th>Valor</th>
+                                                <th>Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="ok-table-body">
+                                            <tr>
+                                                <td colspan="9" class="text-center text-muted py-5">
+                                                    <i class="fas fa-search fa-3x mb-3 d-block"></i>
+                                                    <h5>Use los filtros o la búsqueda para cargar facturas OK</h5>
+                                                    <p>Las facturas se cargarán automáticamente cuando busque o aplique filtros</p>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </main>
         </div>
     </div>
     
-    <!-- Modal para marcar como OK con selección de prioridad -->
     <div class="modal fade" id="markOkModal" tabindex="-1" aria-labelledby="markOkModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -1735,7 +1465,7 @@ function formatDate1($date) {
         const selectedInvoices = new Map();
         let isShowingSelectedOnly = false;
         let currentSearchTerm = '';
-        let todayOnlyFilter = $('#todayOnlyFilter').prop('checked'); // NUEVO
+        let todayOnlyFilter = $('#todayOnlyFilter').prop('checked');
         
         function updateTabTitles() {
             if (todayOnlyFilter) {
@@ -1747,18 +1477,14 @@ function formatDate1($date) {
             }
         }
         
-        // NUEVO: Manejar cambio en el checkbox de "solo hoy"
         $('#todayOnlyFilter').on('change', function() {
             todayOnlyFilter = $(this).prop('checked');
             updateTabTitles();
             loadPendingData();
             loadOkData();
-            
-            // Actualizar URL
             updateURL();
         });
         
-        // Cargar facturas seleccionadas desde localStorage al iniciar
         function loadSelectedInvoicesFromLocalStorage() {
             try {
                 const savedInvoices = localStorage.getItem('selectedInvoices');
@@ -1783,7 +1509,6 @@ function formatDate1($date) {
             }
         }
         
-        // Guardar facturas seleccionadas en localStorage
         function saveSelectedInvoicesToLocalStorage() {
             try {
                 const invoicesObject = {};
@@ -1797,7 +1522,6 @@ function formatDate1($date) {
             }
         }
         
-        // MODIFICADO: Guardar filtros en localStorage incluyendo el checkbox
         function saveFiltersToLocalStorage() {
             const filterData = {
                 date: $('#date').val(),
@@ -1805,12 +1529,11 @@ function formatDate1($date) {
                 supplier: $('#supplier').val(),
                 invoice_id: $('#invoice_id').val(),
                 overdue_days: $('#overdue_days').val(),
-                today_only: todayOnlyFilter // NUEVO
+                today_only: todayOnlyFilter
             };
             localStorage.setItem('invoiceFilters', JSON.stringify(filterData));
         }
         
-        // MODIFICADO: Cargar filtros desde localStorage incluyendo el checkbox
         function loadFiltersFromLocalStorage() {
             try {
                 const savedFilters = localStorage.getItem('invoiceFilters');
@@ -1823,7 +1546,6 @@ function formatDate1($date) {
                     $('#invoice_id').val(filters.invoice_id || '');
                     $('#overdue_days').val(filters.overdue_days || '');
                     
-                    // NUEVO: Cargar estado del checkbox
                     if (filters.today_only !== undefined) {
                         $('#todayOnlyFilter').prop('checked', filters.today_only);
                         todayOnlyFilter = filters.today_only;
@@ -1835,7 +1557,6 @@ function formatDate1($date) {
             }
         }
         
-        // Función para formatear números como moneda
         function formatCurrency(value) {
             return new Intl.NumberFormat('es-CO', {
                 minimumFractionDigits: 2,
@@ -1843,7 +1564,6 @@ function formatDate1($date) {
             }).format(value);
         }
         
-        // Función para actualizar la sección de facturas seleccionadas
         function updateSelectedInvoicesSection() {
             const selectedCount = selectedInvoices.size;
             
@@ -1878,7 +1598,6 @@ function formatDate1($date) {
             saveSelectedInvoicesToLocalStorage();
         }
         
-        // Función para agregar una factura a la selección
         function addToSelection(invoiceId, invoiceName, invoiceValue, invoiceStatus = 'pending') {
             selectedInvoices.set(invoiceId, {
                 id: invoiceId,
@@ -1890,14 +1609,12 @@ function formatDate1($date) {
             updateSelectedInvoicesSection();
         }
         
-        // Función para quitar una factura de la selección
         function removeFromSelection(invoiceId) {
             selectedInvoices.delete(invoiceId);
             $(`#check_${invoiceId}, #check_ok_${invoiceId}`).prop('checked', false);
             updateSelectedInvoicesSection();
         }
         
-        // Función para actualizar el resaltado de las filas seleccionadas
         function updateRowHighlighting() {
             $('tr').removeClass('selected-row');
             
@@ -1906,7 +1623,6 @@ function formatDate1($date) {
             });
         }
         
-        // Función para restaurar la selección después de recargar las tablas
         function restoreSelection() {
             selectedInvoices.forEach((invoice, id) => {
                 $(`#check_${id}, #check_ok_${id}`).prop('checked', true);
@@ -1914,7 +1630,6 @@ function formatDate1($date) {
             updateRowHighlighting();
         }
         
-        // Inicializar botones de marcar como OK
         function initMarkOkButtons() {
             $('.mark-ok-btn').off('click').on('click', function() {
                 const invoiceId = $(this).data('invoice-id');
@@ -1938,14 +1653,12 @@ function formatDate1($date) {
             });
         }
         
-        // Inicializar selectores de prioridad
         function initPrioritySelects() {
             $('.priority-select').off('change').on('change', function() {
                 $(this).closest('form').submit();
             });
         }
         
-        // Inicializar checkboxes
         function initCheckboxes() {
             $('.invoice-checkbox').off('change').on('change', function() {
                 const $row = $(this).closest('tr');
@@ -1974,23 +1687,19 @@ function formatDate1($date) {
             });
         }
         
-        // MODIFICADO: Función para cargar los datos filtrados en la tabla de pendientes
         function loadPendingData() {
             $('#pending-loading').css('display', 'flex');
             
             let formData = $('#filter-form').serialize() + '&ajax=1';
             
-            // NUEVO: Agregar filtro de solo hoy
             if (todayOnlyFilter) {
                 formData += '&today_only=true';
             }
             
-            // Agregar búsqueda en tiempo real
             if (currentSearchTerm) {
                 formData += '&search=' + encodeURIComponent(currentSearchTerm);
             }
             
-            // Agregar filtro de solo seleccionadas
             if (isShowingSelectedOnly) {
                 const selectedIds = Array.from(selectedInvoices.keys()).join(',');
                 formData += '&selected_only=true&selected_ids=' + encodeURIComponent(selectedIds);
@@ -2006,10 +1715,9 @@ function formatDate1($date) {
                     $('#pending-table-body').html(response);
                     
                     const rowCount = $('#pending-table-body tr:not(.supplier-header)').length;
-                    const resultCount = rowCount === 1 && $('#pending-table-body tr td').length === 8 &&
-                                        $('#pending-table-body tr td').text().includes('No se encontraron facturas') ? 0 : rowCount;
+                    const resultCount = rowCount === 1 && $('#pending-table-body tr td').attr('colspan') === '9' ? 0 : rowCount;
                     
-                    $('#pending-results-count').text(`${resultCount} resultado(s) encontrado(s)`);
+                    $('#pending-results-count').text(`${resultCount} resultado(s)`);
                     $('#pending-count').text(resultCount);
                     
                     $('#pending-loading').css('display', 'none');
@@ -2027,23 +1735,19 @@ function formatDate1($date) {
             });
         }
         
-        // MODIFICADO: Función para cargar los datos filtrados en la tabla de OK
         function loadOkData() {
             $('#ok-loading').css('display', 'flex');
             
             let formData = $('#filter-form').serialize() + '&ajax=2';
             
-            // NUEVO: Agregar filtro de solo hoy
             if (todayOnlyFilter) {
                 formData += '&today_only=true';
             }
             
-            // Agregar búsqueda en tiempo real
             if (currentSearchTerm) {
                 formData += '&search=' + encodeURIComponent(currentSearchTerm);
             }
             
-            // Agregar filtro de solo seleccionadas
             if (isShowingSelectedOnly) {
                 const selectedIds = Array.from(selectedInvoices.keys()).join(',');
                 formData += '&selected_only=true&selected_ids=' + encodeURIComponent(selectedIds);
@@ -2059,10 +1763,9 @@ function formatDate1($date) {
                     $('#ok-table-body').html(response);
                     
                     const rowCount = $('#ok-table-body tr:not(.supplier-header)').length;
-                    const resultCount = rowCount === 1 && $('#ok-table-body tr td').length === 8 &&
-                             $('#ok-table-body tr td').text().includes('No hay facturas marcadas como OK') ? 0 : rowCount;
+                    const resultCount = rowCount === 1 && $('#ok-table-body tr td').attr('colspan') === '9' ? 0 : rowCount;
                     
-                    $('#ok-results-count').text(`${resultCount} resultado(s) encontrado(s)`);
+                    $('#ok-results-count').text(`${resultCount} resultado(s)`);
                     $('#ok-count').text(resultCount);
                     
                     $('#ok-loading').css('display', 'none');
@@ -2078,7 +1781,6 @@ function formatDate1($date) {
             });
         }
         
-        // Búsqueda en tiempo real
         $('#realTimeSearch').on('input', function() {
             clearTimeout(searchTimer);
             currentSearchTerm = $(this).val();
@@ -2088,7 +1790,6 @@ function formatDate1($date) {
             }, 300);
         });
         
-        // Limpiar búsqueda con Escape
         $('#realTimeSearch').on('keydown', function(e) {
             if (e.key === 'Escape') {
                 $(this).val('');
@@ -2099,24 +1800,28 @@ function formatDate1($date) {
             }
         });
         
-        // MODIFICADO: Limpiar todos los filtros incluyendo el checkbox
         $('#clear-filters').on('click', function() {
             $('#filter-form')[0].reset();
             $('#realTimeSearch').val('');
-            $('#todayOnlyFilter').prop('checked', false); // NUEVO
+            $('#todayOnlyFilter').prop('checked', false);
             currentSearchTerm = '';
-            todayOnlyFilter = false; // NUEVO
+            todayOnlyFilter = false;
             isShowingSelectedOnly = false;
             $('#showSelectedBtn').show();
             $('#showAllBtn').hide();
             localStorage.removeItem('invoiceFilters');
-            updateTabTitles(); // NUEVO
-            loadPendingData();
-            loadOkData();
+            updateTabTitles();
+            
+            $('#pending-table-body').html('<tr><td colspan="9" class="text-center text-muted py-5"><i class="fas fa-search fa-3x mb-3 d-block"></i><h5>Use los filtros o la búsqueda para cargar facturas</h5><p>Las facturas se cargarán automáticamente cuando busque o aplique filtros</p></td></tr>');
+            $('#ok-table-body').html('<tr><td colspan="9" class="text-center text-muted py-5"><i class="fas fa-search fa-3x mb-3 d-block"></i><h5>Use los filtros o la búsqueda para cargar facturas OK</h5><p>Las facturas se cargarán automáticamente cuando busque o aplique filtros</p></td></tr>');
+            $('#pending-count').text('0');
+            $('#ok-count').text('0');
+            $('#pending-results-count').text('');
+            $('#ok-results-count').text('');
+            
             history.pushState({}, '', window.location.pathname);
         });
         
-        // Botones para la sección de facturas seleccionadas
         $('#showSelectedBtn').on('click', function() {
             isShowingSelectedOnly = true;
             $(this).hide();
@@ -2139,19 +1844,16 @@ function formatDate1($date) {
             updateSelectedInvoicesSection();
             localStorage.removeItem('selectedInvoices');
             
-            // Si estamos mostrando solo seleccionadas, volver a mostrar todas
             if (isShowingSelectedOnly) {
                 $('#showAllBtn').click();
             }
         });
         
-        // Aplicar filtros al hacer clic en el botón
         $('#apply-filters').on('click', function() {
             loadPendingData();
             loadOkData();
         });
         
-        // También aplicar filtros al presionar Enter en cualquier campo
         $('.filter-field').on('keypress', function(e) {
             if (e.which === 13) {
                 e.preventDefault();
@@ -2160,7 +1862,6 @@ function formatDate1($date) {
             }
         });
         
-        // MODIFICADO: Actualizar la URL con los parámetros de filtro incluyendo today_only
         function updateURL() {
             let formData = $('#filter-form').serialize();
             
@@ -2176,44 +1877,27 @@ function formatDate1($date) {
             }
         }
         
-        // Actualizar URL cuando se aplican los filtros
         $('#apply-filters').on('click', function() {
             updateURL();
         });
         
-        // Cargar datos cuando se cambia de pestaña
         $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
             const target = $(e.target).attr("data-bs-target");
             if (target === "#pending-invoices") {
-                loadPendingData();
+                // No cargar automáticamente
             } else if (target === "#ok-invoices") {
-                loadOkData();
+                // No cargar automáticamente
             }
         });
         
-        // Inicializar todo al cargar la página
         loadFiltersFromLocalStorage();
-        updateTabTitles(); // NUEVO
+        updateTabTitles();
         initMarkOkButtons();
         initPrioritySelects();
         initCheckboxes();
         loadSelectedInvoicesFromLocalStorage();
         updateSelectedInvoicesSection();
         
-        // Inicializar contadores de resultados
-        const pendingRowCount = $('#pending-table-body tr:not(.supplier-header)').length;
-        const pendingResultCount = pendingRowCount === 1 && $('#pending-table-body tr td').length === 8 &&
-                                  $('#pending-table-body tr td').text().includes('No se encontraron facturas') ? 0 : pendingRowCount;
-        
-        $('#pending-results-count').text(`${pendingResultCount} resultado(s) encontrado(s)`);
-        
-        const okRowCount = $('#ok-table-body tr:not(.supplier-header)').length;
-        const okResultCount = okRowCount === 1 && $('#ok-table-body tr td').length === 8 &&
-                             $('#ok-table-body tr td').text().includes('No hay facturas marcadas como OK') ? 0 : okRowCount;
-        
-        $('#ok-results-count').text(`${okResultCount} resultado(s) encontrado(s)`);
-        
-        // Agregar evento para guardar selección antes de cerrar la página
         $(window).on('beforeunload', function() {
             saveSelectedInvoicesToLocalStorage();
             saveFiltersToLocalStorage();

@@ -407,23 +407,36 @@ if (!function_exists('getPriorityClass')) {
         }
     }
 }
-
-if (!function_exists('formatColombiaPesos')) {
-    function formatColombiaPesos($amount) {
-        $positiveAmount = abs(floatval($amount));
-        return '$' . number_format($positiveAmount, 0, ',', '.') . ' COP';
-    }
-}
-
-if (!function_exists('getPositiveValue')) {
-    function getPositiveValue($amount) {
+if (!function_exists('sanitizeNumber')) {
+    function sanitizeNumber($amount) {
+        // Manejar casos no válidos: null, vacío, o no numérico
+        if (is_null($amount) || $amount === '' || !is_numeric($amount)) {
+            return 0.0;
+        }
+        // Convertir a float y tomar valor absoluto
         return abs(floatval($amount));
     }
 }
 
+// Formatea un valor como pesos colombianos ($X.XXX.XXX COP)
+if (!function_exists('formatColombiaPesos')) {
+    function formatColombiaPesos($amount) {
+        $positiveAmount = sanitizeNumber($amount);
+        return '$' . number_format($positiveAmount, 0, ',', '.') . ' COP';
+    }
+}
+
+// Devuelve el valor absoluto de un número
+if (!function_exists('getPositiveValue')) {
+    function getPositiveValue($amount) {
+        return sanitizeNumber($amount);
+    }
+}
+
+// Formatea un número según el formato colombiano (X.XXX.XXX)
 if (!function_exists('formatColombiaNumber')) {
     function formatColombiaNumber($amount) {
-        $positiveAmount = abs(floatval($amount));
+        $positiveAmount = sanitizeNumber($amount);
         return number_format($positiveAmount, 0, ',', '.');
     }
 }

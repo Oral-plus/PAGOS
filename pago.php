@@ -3,6 +3,13 @@ session_start();
 require_once 'config/database.php';
 require_once 'includes/functions.php';
 
+// require_once 'vendor/autoload.php';
+// use PhpOffice\PhpSpreadsheet\Spreadsheet;
+// use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+// use PhpOffice\PhpSpreadsheet\Style\Alignment;
+// use PhpOffice\PhpSpreadsheet\Style\Border;
+// use PhpOffice\PhpSpreadsheet\Style\Fill;
+
 // Verificar si el usuario ha iniciado sesión
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -14,29 +21,53 @@ $user_id = $_SESSION['user_id'];
 $user = getUserById($user_id);
 $role = $user['role'];
 
-// Clase para manejar las operaciones de facturas finales
-class FinalInvoiceManager {
+// Clase para manejar las operaciones de facturas
+class InvoiceManager {
     private $conn;
-
+    
     public function __construct() {
         $this->conn = getDbConnection();
     }
-
+    
+    /**
+     * Marcar una factura como final
+     */
+    public function markInvoiceAsFinal($invoice_id) {
+        try {
+            if (is_a($this->conn, 'PDO')) {
+                $sql = "UPDATE invoices SET final = 'si' WHERE docnum_interno_sap = ? AND ESTADOSAP = 'O'";
+                $stmt = $this->conn->prepare($sql);
+                return $stmt->execute([$invoice_id]);
+            } else {
+                $sql = "UPDATE invoices SET final = 'si' WHERE docnum_interno_sap = ? AND ESTADOSAP = 'O'";
+                $params = array($invoice_id);
+                $stmt = sqlsrv_query($this->conn, $sql, $params);
+                if ($stmt === false) {
+                    throw new Exception('Error al actualizar la factura: ' . print_r(sqlsrv_errors(), true));
+                }
+                return true;
+            }
+        } catch (Exception $e) {
+            error_log("Error en markInvoiceAsFinal: " . $e->getMessage());
+            return false;
+        }
+    }
+    
     /**
      * Buscar proveedores para autocompletado
      */
     public function searchSuppliers($search_term = '') {
         try {
-            $sql = "SELECT DISTINCT nombre FROM invoices WHERE final = 'si'";
+            $sql = "SELECT DISTINCT nombre FROM invoices WHERE ESTADOSAP = 'O'";
             $params = array();
-
+            
             if (!empty($search_term)) {
                 $sql .= " AND nombre LIKE ?";
                 $params[] = '%' . $search_term . '%';
             }
-
+            
             $sql .= " ORDER BY nombre ASC LIMIT 10";
-
+            
             if (is_a($this->conn, 'PDO')) {
                 $stmt = $this->conn->prepare($sql);
                 $stmt->execute($params);
@@ -46,7 +77,7 @@ class FinalInvoiceManager {
                 if ($stmt === false) {
                     throw new Exception('Error al buscar proveedores: ' . print_r(sqlsrv_errors(), true));
                 }
-
+                
                 $suppliers = array();
                 while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_NUMERIC)) {
                     $suppliers[] = $row[0];
@@ -58,137 +89,70 @@ class FinalInvoiceManager {
             return array();
         }
     }
-
+    
     /**
-     * Obtener facturas finales con filtros avanzados y separación por fecha
+     * Obtener facturas completadas con filtros avanzados
      */
-    public function getFinalInvoicesWithDateSeparation($supplier = '', $date_from = '', $date_to = '', $amount_min = '', $amount_max = '', $search = '') {
+    public function getCompletedInvoices($supplier = '', $date_from = '', $date_to = '', $today_only = '') {
         try {
-            // Base SQL query - SOLO facturas marcadas como final
             $sql = "SELECT *,
-                            DATEDIFF(day, fecha_vencimiento, GETDATE()) as dias_antiguedad,
-                            CAST(created_at AS DATE) as fecha_creacion
-                     FROM invoices 
-                     WHERE final = 'si'
-                     AND (status = 'completada' OR status = 'completado')";
+                     DATEDIFF(day, fecha_vencimiento, GETDATE()) as dias_antiguedad
+                    FROM invoices 
+                    WHERE ESTADOSAP = 'O'
+                    AND (status = 'completada' OR status = 'completado')
+                    AND (final IS NULL OR final != 'si')";
             $params = array();
-
-            // Añadir filtro de proveedor si está presente
+            
+            if (!empty($today_only) && $today_only === '1') {
+                $sql .= " AND CONVERT(DATE, created_at) = CONVERT(DATE, GETDATE())";
+            }
+            
             if (!empty($supplier)) {
                 $sql .= " AND nombre LIKE ?";
                 $params[] = '%' . $supplier . '%';
             }
-
-            // Añadir filtro de fecha desde si está presente
+            
             if (!empty($date_from)) {
                 $sql .= " AND fecha_vencimiento >= ?";
                 $params[] = $date_from;
             }
-
-            // Añadir filtro de fecha hasta si está presente
+            
             if (!empty($date_to)) {
                 $sql .= " AND fecha_vencimiento <= ?";
                 $params[] = $date_to;
             }
-
-            // Filtro de monto mínimo
-            if (!empty($amount_min) && is_numeric($amount_min)) {
-                $sql .= " AND saldo_pendiente >= ?";
-                $params[] = $amount_min;
-            }
-
-            // Filtro de monto máximo
-            if (!empty($amount_max) && is_numeric($amount_max)) {
-                $sql .= " AND saldo_pendiente <= ?";
-                $params[] = $amount_max;
-            }
-
-            // Filtro de búsqueda general
-            if (!empty($search)) {
-                $sql .= " AND (docnum_interno_sap LIKE ? OR nombre LIKE ? OR observaciones LIKE ?)";
-                $searchParam = '%' . $search . '%';
-                $params[] = $searchParam;
-                $params[] = $searchParam;
-                $params[] = $searchParam;
-            }
-
-            // Ordenar por fecha de creación descendente y luego por proveedor
-            $sql .= " ORDER BY created_at DESC, nombre ASC, fecha_vencimiento DESC";
-
+            
+            $sql .= " ORDER BY nombre ASC, fecha_vencimiento DESC";
+            
             if (is_a($this->conn, 'PDO')) {
-                // Para PDO, adaptar la consulta
                 $sql = str_replace("DATEDIFF(day, fecha_vencimiento, GETDATE())",
                                    "DATEDIFF(CURDATE(), fecha_vencimiento)", $sql);
-                $sql = str_replace("CAST(created_at AS DATE)", "DATE(created_at)", $sql);
+                $sql = str_replace("CONVERT(DATE, GETDATE())", "CURDATE()", $sql);
+                $sql = str_replace("CONVERT(DATE, created_at)", "DATE(created_at)", $sql);
                 
                 $stmt = $this->conn->prepare($sql);
                 $stmt->execute($params);
-                $invoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
             } else {
                 $stmt = sqlsrv_query($this->conn, $sql, $params);
                 if ($stmt === false) {
                     throw new Exception('Error al obtener facturas: ' . print_r(sqlsrv_errors(), true));
                 }
-
+                
                 $invoices = array();
                 while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
                     $invoices[] = $row;
                 }
+                return $invoices;
             }
-
-            // Separar facturas por fecha de creación
-            $today = date('Y-m-d');
-            $today_invoices = array();
-            $previous_invoices = array();
-
-            foreach ($invoices as $invoice) {
-                // Filtrar facturas con ESTADOSAP = 'C'
-                if (isset($invoice['ESTADOSAP']) && strtoupper(trim($invoice['ESTADOSAP'])) === 'C') {
-                    continue;
-                }
-
-                // Obtener fecha de creación
-                $created_date = '';
-                if (isset($invoice['created_at'])) {
-                    if (is_object($invoice['created_at']) && method_exists($invoice['created_at'], 'format')) {
-                        $created_date = $invoice['created_at']->format('Y-m-d');
-                    } elseif (is_string($invoice['created_at'])) {
-                        $created_date = date('Y-m-d', strtotime($invoice['created_at']));
-                    }
-                } elseif (isset($invoice['fecha_creacion'])) {
-                    if (is_object($invoice['fecha_creacion']) && method_exists($invoice['fecha_creacion'], 'format')) {
-                        $created_date = $invoice['fecha_creacion']->format('Y-m-d');
-                    } elseif (is_string($invoice['fecha_creacion'])) {
-                        $created_date = date('Y-m-d', strtotime($invoice['fecha_creacion']));
-                    }
-                }
-
-                // Separar por fecha
-                if ($created_date === $today) {
-                    $today_invoices[] = $invoice;
-                } else {
-                    $previous_invoices[] = $invoice;
-                }
-            }
-
-            return [
-                'today' => $today_invoices,
-                'previous' => $previous_invoices,
-                'all' => $invoices
-            ];
-
         } catch (Exception $e) {
-            error_log("Error en getFinalInvoicesWithDateSeparation: " . $e->getMessage());
-            return [
-                'today' => array(),
-                'previous' => array(),
-                'all' => array()
-            ];
+            error_log("Error en getCompletedInvoices: " . $e->getMessage());
+            return array();
         }
     }
-
+    
     /**
-     * Obtener estadísticas de facturas finales
+     * Obtener estadísticas de facturas
      */
     public function getInvoiceStats($invoices) {
         $stats = [
@@ -196,46 +160,172 @@ class FinalInvoiceManager {
             'total_amount' => 0,
             'suppliers_count' => 0,
             'priority_breakdown' => ['alta' => 0, 'media' => 0, 'baja' => 0],
-            'avg_amount' => 0
+            'today_count' => 0
         ];
-
+        
         $unique_suppliers = array();
-
+        $today = date('Y-m-d');
+        
         foreach ($invoices as $invoice) {
             $stats['total_invoices']++;
-            $stats['total_amount'] += ($invoice['saldo_pendiente'] ?? 0);
-
+            $stats['total_amount'] += abs(floatval($invoice['saldo_pendiente'] ?? 0));
+            
             $supplier = $invoice['nombre'];
             if (!in_array($supplier, $unique_suppliers)) {
                 $unique_suppliers[] = $supplier;
             }
-
+            
             $priority = strtolower(trim($invoice['priority'] ?? 'baja'));
             if (isset($stats['priority_breakdown'][$priority])) {
                 $stats['priority_breakdown'][$priority]++;
             }
+            
+            $created_date = safeDateFormat($invoice['created_at'] ?? '', 'Y-m-d');
+            if ($created_date === $today) {
+                $stats['today_count']++;
+            }
         }
-
+        
         $stats['suppliers_count'] = count($unique_suppliers);
-        $stats['avg_amount'] = $stats['total_invoices'] > 0 ? $stats['total_amount'] / $stats['total_invoices'] : 0;
-
+        
+        $stats['average_amount'] = $stats['total_invoices'] > 0 ? $stats['total_amount'] / $stats['total_invoices'] : 0;
+        $stats['high_priority'] = $stats['priority_breakdown']['alta'];
+        $stats['medium_priority'] = $stats['priority_breakdown']['media'];
+        $stats['low_priority'] = $stats['priority_breakdown']['baja'];
+        $stats['completed_today'] = $stats['today_count'];
+        
         return $stats;
+    }
+    
+    /**
+     * Generar archivo Excel usando funciones nativas de PHP
+     */
+    public function generateExcel($supplier = '', $date_from = '', $date_to = '', $today_only = '') {
+        try {
+            // Obtener facturas con filtros
+            $invoices = $this->getCompletedInvoices($supplier, $date_from, $date_to, $today_only);
+            
+            if (empty($invoices)) {
+                return false;
+            }
+
+            $filename = 'facturas_completadas_' . date('Y-m-d_H-i-s') . '.xls';
+            
+            // Headers para descarga
+            header('Content-Type: application/vnd.ms-excel');
+            header('Content-Disposition: attachment;filename="' . $filename . '"');
+            header('Cache-Control: max-age=0');
+            
+            // Iniciar output
+            echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
+            echo '<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><title>Facturas Completadas</title></head>';
+            echo '<body>';
+            
+            // Hoja 1: Resumen por Proveedores
+            echo '<table border="1">';
+            echo '<tr><td colspan="6" style="background-color: #4472C4; color: white; font-weight: bold; text-align: center;">RESUMEN POR PROVEEDORES</td></tr>';
+            echo '<tr style="background-color: #D9E2F3; font-weight: bold;">';
+            echo '<td>Proveedor</td><td>Total Facturas</td><td>Valor Total</td><td>Promedio</td><td>Más Antigua</td><td>Más Reciente</td>';
+            echo '</tr>';
+            
+            // Agrupar por proveedor
+            $grouped = array();
+            foreach ($invoices as $invoice) {
+                $supplier_name = $invoice['nombre'] ?? 'Sin nombre';
+                if (!isset($grouped[$supplier_name])) {
+                    $grouped[$supplier_name] = array(
+                        'count' => 0,
+                        'total' => 0,
+                        'dates' => array()
+                    );
+                }
+                $grouped[$supplier_name]['count']++;
+                $grouped[$supplier_name]['total'] += abs(floatval($invoice['saldo_pendiente'] ?? 0));
+                $grouped[$supplier_name]['dates'][] = $invoice['fecha_vencimiento'];
+            }
+            
+            foreach ($grouped as $supplier_name => $data) {
+                $average = $data['count'] > 0 ? $data['total'] / $data['count'] : 0;
+                $oldest = min($data['dates']);
+                $newest = max($data['dates']);
+                
+                echo '<tr>';
+                echo '<td>' . htmlspecialchars($supplier_name) . '</td>';
+                echo '<td>' . $data['count'] . '</td>';
+                echo '<td>$' . number_format($data['total'], 2) . '</td>';
+                echo '<td>$' . number_format($average, 2) . '</td>';
+                echo '<td>' . safeDateFormat($oldest, 'd/m/Y') . '</td>';
+                echo '<td>' . safeDateFormat($newest, 'd/m/Y') . '</td>';
+                echo '</tr>';
+            }
+            echo '</table><br><br>';
+            
+            // Hoja 2: Detalle de Facturas
+            echo '<table border="1">';
+            echo '<tr><td colspan="8" style="background-color: #70AD47; color: white; font-weight: bold; text-align: center;">DETALLE DE FACTURAS</td></tr>';
+            echo '<tr style="background-color: #E2EFDA; font-weight: bold;">';
+            echo '<td>N° SAP</td><td>NIT</td><td>Proveedor</td><td>Fecha Vencimiento</td><td>Valor</td><td>Prioridad</td><td>Estado</td><td>Días Antigüedad</td>';
+            echo '</tr>';
+            
+            foreach ($invoices as $invoice) {
+                $priority_color = '';
+                switch (strtolower($invoice['priority'] ?? '')) {
+                    case 'alta':
+                        $priority_color = 'background-color: #FFE6E6;';
+                        break;
+                    case 'media':
+                        $priority_color = 'background-color: #FFF2E6;';
+                        break;
+                    case 'baja':
+                        $priority_color = 'background-color: #E6F7E6;';
+                        break;
+                }
+                
+                echo '<tr style="' . $priority_color . '">';
+                echo '<td>' . htmlspecialchars($invoice['docnum_interno_sap'] ?? '') . '</td>';
+                echo '<td>' . htmlspecialchars($invoice['codigo_sn'] ?? '') . '</td>';
+                echo '<td>' . htmlspecialchars($invoice['nombre'] ?? '') . '</td>';
+                echo '<td>' . safeDateFormat($invoice['fecha_vencimiento'], 'd/m/Y') . '</td>';
+                echo '<td>$' . number_format(abs(floatval($invoice['saldo_pendiente'] ?? 0)), 2) . '</td>';
+                echo '<td>' . htmlspecialchars($invoice['priority'] ?? '') . '</td>';
+                echo '<td>' . htmlspecialchars($invoice['status'] ?? '') . '</td>';
+                echo '<td>' . ($invoice['dias_antiguedad'] ?? 0) . '</td>';
+                echo '</tr>';
+            }
+            echo '</table><br><br>';
+            
+            // Hoja 3: Estadísticas
+            $stats = $this->getInvoiceStats($invoices);
+            echo '<table border="1">';
+            echo '<tr><td colspan="2" style="background-color: #FFC000; color: black; font-weight: bold; text-align: center;">ESTADÍSTICAS GENERALES</td></tr>';
+            echo '<tr><td style="font-weight: bold;">Total de Facturas:</td><td>' . $stats['total_invoices'] . '</td></tr>';
+            echo '<tr><td style="font-weight: bold;">Valor Total:</td><td>$' . number_format($stats['total_amount'], 2) . '</td></tr>';
+            echo '<tr><td style="font-weight: bold;">Promedio por Factura:</td><td>$' . number_format($stats['average_amount'], 2) . '</td></tr>';
+            echo '<tr><td style="font-weight: bold;">Facturas Alta Prioridad:</td><td>' . $stats['high_priority'] . '</td></tr>';
+            echo '<tr><td style="font-weight: bold;">Facturas Media Prioridad:</td><td>' . $stats['medium_priority'] . '</td></tr>';
+            echo '<tr><td style="font-weight: bold;">Facturas Baja Prioridad:</td><td>' . $stats['low_priority'] . '</td></tr>';
+            echo '<tr><td style="font-weight: bold;">Completadas Hoy:</td><td>' . $stats['completed_today'] . '</td></tr>';
+            echo '</table>';
+            
+            echo '</body></html>';
+            exit();
+            
+        } catch (Exception $e) {
+            error_log("Error generando Excel: " . $e->getMessage());
+            return false;
+        }
     }
 }
 
-// Función helper para manejar fechas de manera segura
+// Funciones helper
 if (!function_exists('safeDateFormat')) {
     function safeDateFormat($date, $format = 'Y-m-d') {
-        if (empty($date)) {
-            return '';
-        }
-
-        // Si es un objeto DateTime (SQL Server)
+        if (empty($date)) return '';
+        
         if (is_object($date) && method_exists($date, 'format')) {
             return $date->format($format);
         }
-
-        // Si es una cadena
+        
         if (is_string($date)) {
             try {
                 $timestamp = strtotime($date);
@@ -246,29 +336,43 @@ if (!function_exists('safeDateFormat')) {
                 error_log("Error formatting date: " . $e->getMessage());
             }
         }
-
-        // Si es un timestamp numérico
+        
         if (is_numeric($date)) {
             return date($format, $date);
         }
-
+        
         return '';
     }
 }
 
-// Función mejorada para formatear fechas
+if (!function_exists('getDateString')) {
+    function getDateString($date) {
+        if (empty($date)) return '';
+        
+        if (is_object($date) && method_exists($date, 'format')) {
+            return $date->format('Y-m-d H:i:s');
+        }
+        
+        if (is_string($date)) {
+            return $date;
+        }
+        
+        if (is_numeric($date)) {
+            return date('Y-m-d H:i:s', $date);
+        }
+        
+        return '';
+    }
+}
+
 if (!function_exists('formatDate')) {
     function formatDate($date) {
-        if (empty($date)) {
-            return 'Fecha no disponible';
-        }
-
-        // Si es un objeto DateTime (SQL Server)
+        if (empty($date)) return 'Fecha no disponible';
+        
         if (is_object($date) && method_exists($date, 'format')) {
             return $date->format('d/m/Y');
         }
-
-        // Si es una cadena
+        
         if (is_string($date)) {
             try {
                 $timestamp = strtotime($date);
@@ -279,17 +383,15 @@ if (!function_exists('formatDate')) {
                 error_log("Error formatting date: " . $e->getMessage());
             }
         }
-
-        // Si es un timestamp numérico
+        
         if (is_numeric($date)) {
             return date('d/m/Y', $date);
         }
-
+        
         return 'Fecha inválida';
     }
 }
 
-// Función auxiliar para obtener clase de prioridad
 if (!function_exists('getPriorityClass')) {
     function getPriorityClass($priority) {
         $priority = strtolower(trim($priority));
@@ -306,258 +408,74 @@ if (!function_exists('getPriorityClass')) {
     }
 }
 
-// Función para renderizar tabla de facturas por sección
-function renderInvoicesSection($invoices, $section_title, $section_id, $badge_color = 'success') {
-    if (empty($invoices)) {
-        return '';
-    }
-
-    // Eliminar duplicados y agrupar por proveedor
-    $unique_invoices = [];
-    $seen = [];
-    foreach ($invoices as $invoice) {
-        // Assuming 'id' is unique for each invoice, or 'docnum_interno_sap' if it's the primary identifier
-        $key = $invoice['id'] ?? $invoice['docnum_interno_sap']; 
-        if (!in_array($key, $seen)) {
-            $seen[] = $key;
-            $unique_invoices[] = $invoice;
+if (!function_exists('sanitizeNumber')) {
+    function sanitizeNumber($amount) {
+        // Si es null, vacío o no numérico, devolver 0
+        if (is_null($amount) || $amount === '' || !is_numeric($amount)) {
+            return 0.0;
         }
+        // Convertir a float y tomar valor absoluto
+        return abs(floatval($amount));
     }
-
-    // Agrupar facturas por proveedor
-    $invoices_by_supplier = [];
-    foreach ($unique_invoices as $invoice) {
-        $supplier_name = $invoice['nombre'];
-        if (!isset($invoices_by_supplier[$supplier_name])) {
-            $invoices_by_supplier[$supplier_name] = [];
-        }
-        $invoices_by_supplier[$supplier_name][] = $invoice;
-    }
-
-    // Ordenar proveedores alfabéticamente
-    ksort($invoices_by_supplier);
-
-    // Calcular totales por proveedor
-    $supplier_totals = [];
-    $grand_total = 0;
-    
-    foreach ($invoices_by_supplier as $supplier => $supplier_invoices) {
-        $total = 0;
-        $seen_invoices = [];
-    
-        foreach ($supplier_invoices as $invoice) {
-            $factura_id = $invoice['numero_factura_proveedor'];
-    
-            // Si ya se contó esta factura, la saltamos
-            if (in_array($factura_id, $seen_invoices)) {
-                continue;
-            }
-    
-            $seen_invoices[] = $factura_id;
-            $total += ($invoice['saldo_pendiente'] ?? 0);
-        }
-    
-        $supplier_totals[$supplier] = [
-            'total' => $total,
-            'count' => count($seen_invoices)
-        ];
-        $grand_total += $total;
-    }
-    
-    ob_start();
-    ?>
-        <div class="card shadow-sm mb-4">
-            <div class="card-header bg-<?php echo $badge_color; ?> text-white">
-                <h5 class="mb-0">
-                    <i class="fas fa-calendar-check me-2"></i>
-                    <?php echo $section_title; ?>
-                    <span class="badge bg-light text-dark ms-2">
-                        <?php echo count($unique_invoices); ?> facturas - <?php echo count($invoices_by_supplier); ?> proveedores
-                    </span>
-                </h5>
-            </div>
-            <div class="card-body">
-                <?php if (count($unique_invoices) > 0): ?>
-                    <div class="table-responsive" id="<?php echo $section_id; ?>Container">
-                        <?php
-                        $supplierIndex = 0;
-                        foreach ($invoices_by_supplier as $supplier_name => $supplier_invoices):
-                            $supplierIndex++;
-                            $unique_section_id = $section_id . '_supplier_' . $supplierIndex;
-                        ?>
-                            <!-- Encabezado del proveedor -->
-                            <div class="supplier-header" data-supplier-id="<?php echo $unique_section_id; ?>">
-                                <div class="d-flex justify-content-between align-items-center p-3">
-                                    <div class="d-flex align-items-center">
-                                        <button class="btn btn-sm btn-toggle me-2" data-bs-toggle="collapse"
-                                                data-bs-target=".<?php echo $unique_section_id; ?>"
-                                                data-supplier-index="<?php echo $unique_section_id; ?>"
-                                                aria-expanded="true" aria-controls="<?php echo $unique_section_id; ?>">
-                                            <i class="fas fa-chevron-down"></i>
-                                        </button>
-                                        <div class="form-check me-2">
-                                            <input class="form-check-input select-all-supplier-checkbox" type="checkbox" 
-                                                   id="selectAll_<?php echo $unique_section_id; ?>" 
-                                                   data-supplier-name="<?php echo htmlspecialchars($supplier_name); ?>"
-                                                   data-section-id="<?php echo $section_id; ?>">
-                                            <label class="form-check-label sr-only" for="selectAll_<?php echo $unique_section_id; ?>">
-                                                Seleccionar todas las facturas de <?php echo htmlspecialchars($supplier_name); ?>
-                                            </label>
-                                        </div>
-                                        <div>
-                                            <h6 class="mb-1" style="color: #495057; font-weight: 600;">
-                                                <i class="fas fa-building me-2" style="color: #007bff;"></i>
-                                                <?php echo htmlspecialchars($supplier_name); ?>
-                                            </h6>
-                                            <small class="text-muted">
-                                                <i class="fas fa-check-double me-1"></i>
-                                                <?php echo $supplier_totals[$supplier_name]['count']; ?> factura(s) final(es)
-                                            </small>
-                                        </div>
-                                    </div>
-                                    <div class="text-end">
-                                        <span class="supplier-count-badge me-2">
-                                            <i class="fas fa-file-invoice me-1"></i>
-                                            <?php echo $supplier_totals[$supplier_name]['count']; ?> finales
-                                        </span>
-                                        <span class="supplier-total-badge">
-    <i class="fas fa-dollar-sign me-1"></i>
-    $<?php echo number_format($supplier_totals[$supplier_name]['total'], 2, ',', '.'); ?>
-</span>
-
-                                    </div>
-                                </div>
-                            </div>
-                                            
-                            <!-- Tabla de facturas del proveedor -->
-                            <table class="table table-striped table-hover invoice-table <?php echo $unique_section_id; ?> collapse show">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th style="width: 40px;"><span class="sr-only">Seleccionar</span></th>
-                                        <th>N° SAP</th>
-                                        <th>Fecha Vencimiento</th>
-                                        <th>Fecha Finalización</th>
-                                        <th>Valor</th>
-                                        <th>Prioridad</th>
-                                        <th>Estado</th>
-                                        <th>Acciones</th>
-                                    </tr>
-                                </thead>
-                               <tbody>
-    <?php 
-    $facturas_mostradas = [];
-    foreach ($supplier_invoices as $invoice): 
-        $docnum = $invoice['docnum_interno_sap'] ?? null;
-        if ($docnum === null || in_array($docnum, $facturas_mostradas)) {
-            continue; // Saltar si ya fue mostrada
-        }
-        $facturas_mostradas[] = $docnum;
-    ?>
-        <tr class="final-invoice">
-            <td>
-                <div class="form-check">
-                    <input class="form-check-input invoice-checkbox" type="checkbox" 
-                           id="invoice_<?php echo htmlspecialchars($invoice['id'] ?? $docnum); ?>" 
-                           data-invoice-id="<?php echo htmlspecialchars($invoice['id'] ?? $docnum); ?>"
-                           data-invoice-amount="<?php echo htmlspecialchars($invoice['saldo_pendiente'] ?? 0); ?>"
-                           data-supplier-name="<?php echo htmlspecialchars($supplier_name); ?>"
-                           data-section-id="<?php echo $section_id; ?>">
-                    <label class="form-check-label sr-only" for="invoice_<?php echo htmlspecialchars($invoice['id'] ?? $docnum); ?>">
-                        Seleccionar factura <?php echo htmlspecialchars($docnum ?? 'N/A'); ?>
-                    </label>
-                </div>
-            </td>
-            <td>
-                <strong><?php echo htmlspecialchars($docnum ?? 'N/A'); ?></strong>
-                <span class="badge bg-<?php echo $badge_color; ?> ms-1" title="Factura Final">
-                    <i class="fas fa-check-double"></i>
-                </span>
-            </td>
-            <td>
-                <?php echo formatDate($invoice['fecha_vencimiento']); ?>
-            </td>
-            <td>
-                <small class="text-muted">
-                    <?php 
-                    $created_date = '';
-                    if (isset($invoice['created_at'])) {
-                        if (is_object($invoice['created_at']) && method_exists($invoice['created_at'], 'format')) {
-                            $created_date = $invoice['created_at']->format('d/m/Y H:i');
-                        } elseif (is_string($invoice['created_at'])) {
-                            $created_date = date('d/m/Y H:i', strtotime($invoice['created_at']));
-                        }
-                    } elseif (isset($invoice['fecha_creacion'])) {
-                        if (is_object($invoice['fecha_creacion']) && method_exists($invoice['fecha_creacion'], 'format')) {
-                            $created_date = $invoice['fecha_creacion']->format('d/m/Y H:i');
-                        } elseif (is_string($invoice['fecha_creacion'])) {
-                            $created_date = date('d/m/Y H:i', strtotime($invoice['fecha_creacion']));
-                        }
-                    }
-                    echo $created_date ?: 'N/A';
-                    ?>
-                </small>
-            </td>
-            <td><strong>$<?php echo number_format($invoice['saldo_pendiente'] ?? 0, 2, ',', '.'); ?></strong></td>
-            <td>
-                <?php
-                $priority = strtolower(trim($invoice['priority'] ?? 'baja'));
-                $priorityClass = getPriorityClass($priority);
-                ?>
-                <span class="priority-badge" style="background-color: <?php echo $priorityClass['bg']; ?>; color: <?php echo $priorityClass['text']; ?>; border: 1px solid <?php echo $priorityClass['border']; ?>;">
-                    <?php echo ucfirst($priority); ?>
-                </span>
-            </td>
-            <td>
-                <span class="badge badge-final">
-                    <i class="fas fa-check-double me-1"></i>
-                    Final
-                </span>
-            </td>
-            <td>
-                <a href="view_invoice.php?docnum_interno_sap=<?php echo htmlspecialchars($docnum); ?>" class="btn btn-sm btn-info" title="Ver detalles">
-                    <i class="fas fa-eye"></i>
-                </a>
-            </td>
-        </tr>
-    <?php endforeach; ?>
-</tbody>
-
-                            </table>
-                        <?php endforeach; ?>
-                                            
-                        <!-- Controles para expandir/colapsar esta sección -->
-                        <div class="d-flex justify-content-end mb-3">
-                            <button class="btn btn-sm btn-outline-primary me-2 expand-section-btn" data-section="<?php echo $section_id; ?>">
-                                <i class="fas fa-expand me-1"></i> Expandir Sección
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary collapse-section-btn" data-section="<?php echo $section_id; ?>">
-                                <i class="fas fa-compress me-1"></i> Colapsar Sección
-                            </button>
-                        </div>
-                                            
-                    </div>
-                </div>
-                <?php else: ?>
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle me-2"></i>
-                        No hay facturas finales en esta categoría.
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-    <?php
-    return ob_get_clean();
 }
 
-// Instanciar el manejador de facturas finales
-$finalInvoiceManager = new FinalInvoiceManager();
+// Formatea un valor como pesos colombianos ($X.XXX.XXX COP)
+if (!function_exists('formatColombiaPesos')) {
+    function formatColombiaPesos($amount) {
+        $positiveAmount = sanitizeNumber($amount);
+        return '$' . number_format($positiveAmount, 0, ',', '.') . ' COP';
+    }
+}
+
+// Devuelve el valor absoluto de un número
+if (!function_exists('getPositiveValue')) {
+    function getPositiveValue($amount) {
+        return sanitizeNumber($amount);
+    }
+}
+
+// Formatea un número según el formato colombiano (X.XXX.XXX)
+if (!function_exists('formatColombiaNumber')) {
+    function formatColombiaNumber($amount) {
+        $positiveAmount = sanitizeNumber($amount);
+        return number_format($positiveAmount, 0, ',', '.');
+    }
+}
+
+// Instanciar el manejador de facturas
+$invoiceManager = new InvoiceManager();
 
 // API endpoint para búsqueda de proveedores
 if (isset($_GET['action']) && $_GET['action'] === 'search_suppliers') {
     header('Content-Type: application/json');
     $search_term = $_GET['q'] ?? '';
-    $suppliers = $finalInvoiceManager->searchSuppliers($search_term);
+    $suppliers = $invoiceManager->searchSuppliers($search_term);
     echo json_encode($suppliers);
+    exit();
+}
+
+// Procesar la actualización del campo "final"
+if (isset($_POST['mark_final']) && isset($_POST['invoice_id'])) {
+    $invoice_id = $_POST['invoice_id'];
+    $success = $invoiceManager->markInvoiceAsFinal($invoice_id);
+    
+    if ($success) {
+        $_SESSION['success_message'] = "Factura #$invoice_id marcada como final exitosamente.";
+    } else {
+        $_SESSION['error_message'] = "Error al marcar la factura #$invoice_id como final.";
+    }
+    
+    header("Location: " . $_SERVER['PHP_SELF'] . "?" . http_build_query($_GET));
+    exit();
+}
+
+if (isset($_GET['action']) && $_GET['action'] === 'generate_excel') {
+    $supplier = $_GET['supplier'] ?? '';
+    $date_from = $_GET['date_from'] ?? '';
+    $date_to = $_GET['date_to'] ?? '';
+    $today_only = $_GET['today_only'] ?? '';
+    
+    $invoiceManager->generateExcel($supplier, $date_from, $date_to, $today_only);
     exit();
 }
 
@@ -565,9 +483,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'search_suppliers') {
 $filter_supplier = filter_input(INPUT_GET, 'filter_supplier', FILTER_SANITIZE_STRING) ?? '';
 $filter_date_from = filter_input(INPUT_GET, 'filter_date_from', FILTER_SANITIZE_STRING) ?? '';
 $filter_date_to = filter_input(INPUT_GET, 'filter_date_to', FILTER_SANITIZE_STRING) ?? '';
-$filter_amount_min = filter_input(INPUT_GET, 'filter_amount_min', FILTER_VALIDATE_FLOAT) ?? '';
-$filter_amount_max = filter_input(INPUT_GET, 'filter_amount_max', FILTER_VALIDATE_FLOAT) ?? '';
-$filter_search = filter_input(INPUT_GET, 'filter_search', FILTER_SANITIZE_STRING) ?? '';
+$filter_today_only = $_GET['filter_today_only'] ?? '';
 
 // Validar fechas
 if (!empty($filter_date_from) && !DateTime::createFromFormat('Y-m-d', $filter_date_from)) {
@@ -577,16 +493,8 @@ if (!empty($filter_date_to) && !DateTime::createFromFormat('Y-m-d', $filter_date
     $filter_date_to = '';
 }
 
-// Obtener datos separados por fecha
-$invoice_data = $finalInvoiceManager->getFinalInvoicesWithDateSeparation($filter_supplier, $filter_date_from, $filter_date_to, $filter_amount_min, $filter_amount_max, $filter_search);
-$today_invoices = $invoice_data['today'];
-$previous_invoices = $invoice_data['previous'];
-$all_invoices = $invoice_data['all'];
-
-// Calcular estadísticas
-$today_stats = $finalInvoiceManager->getInvoiceStats($today_invoices);
-$previous_stats = $finalInvoiceManager->getInvoiceStats($previous_invoices);
-$total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
+// Obtener datos
+$completed_invoices = $invoiceManager->getCompletedInvoices($filter_supplier, $filter_date_from, $filter_date_to, $filter_today_only);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -594,7 +502,7 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="assets/65x45.png" type="image/x-icon">
-    <title>Facturas Finales - Sistema de Facturación</title>
+    <title>Facturas Completadas - Sistema de Facturación</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/styles.css">
@@ -628,10 +536,6 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
             position: sticky;
             bottom: 0;
             z-index: 5;
-            padding: 1rem;
-            text-align: center;
-            box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
-            margin-top: 2rem; /* Add some space above it */
         }
         
         .stats-card {
@@ -651,6 +555,19 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
             border-radius: 4px;
             display: inline-block;
             text-transform: capitalize;
+        }
+        
+        /* Filtro de hoy */
+        .today-filter-container {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            color: white;
+        }
+        
+        .today-filter-switch {
+            transform: scale(1.2);
         }
         
         /* Estilos para búsqueda de proveedores */
@@ -699,6 +616,92 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
             font-style: italic;
         }
         
+        /* Sistema de preferencias mejorado */
+        .settings-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            padding: 20px;
+            z-index: 1050;
+            max-width: 350px;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            border: 2px solid #007bff;
+        }
+        
+        .settings-panel.show {
+            transform: translateX(0);
+        }
+        
+        .settings-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1051;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 55px;
+            height: 55px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            font-size: 1.2rem;
+        }
+        
+        .settings-toggle:hover {
+            background: #0056b3;
+            transform: rotate(90deg);
+        }
+        
+        .preference-item {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            background: #f8f9fa;
+            border-left: 3px solid #007bff;
+        }
+        
+        .preference-label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+            display: block;
+        }
+        
+        .preference-description {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .preference-control {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .auto-save-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 25px;
+            font-size: 0.9em;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        
+        .auto-save-indicator.show {
+            opacity: 1;
+        }
+        
         /* Agrupación por proveedores */
         .supplier-group {
             background-color: #f8f9fa;
@@ -723,9 +726,113 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
             font-size: 0.8em;
         }
         
-        .final-invoice {
-            background-color: #e8f5e8;
-            border-left: 4px solid #28a745;
+        .today-completed-invoice {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196f3;
+        }
+        
+        /* Estilos para la alerta personalizada mejorada */
+        .custom-alert-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .custom-alert {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 480px;
+            padding: 0;
+            overflow: hidden;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateY(-30px) scale(0.95); }
+            to { transform: translateY(0) scale(1); }
+        }
+        
+        .custom-alert-header {
+            background: linear-gradient(135deg, #ff6b35, #f7931e);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.3rem;
+        }
+        
+        .custom-alert-body {
+            padding: 25px;
+            text-align: center;
+        }
+        
+        .custom-alert-body p {
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+            color: #555;
+            line-height: 1.5;
+        }
+        
+        .custom-alert-invoice {
+            font-weight: bold;
+            color: #007bff;
+            background: #e3f2fd;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin: 20px auto;
+            display: inline-block;
+            border: 2px solid #007bff;
+        }
+        
+        .custom-alert-footer {
+            display: flex;
+            padding: 15px;
+            border-top: 1px solid #eee;
+            gap: 10px;
+        }
+        
+        .custom-alert-btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            border-radius: 6px;
+            transition: all 0.2s;
+            font-size: 1rem;
+        }
+        
+        .btn-cancel {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-cancel:hover {
+            background: #5a6268;
+        }
+        
+        .btn-confirm {
+            background: #007bff;
+            color: white;
+        }
+        
+        .btn-confirm:hover {
+            background: #0056b3;
         }
         
         .loading-spinner {
@@ -740,90 +847,164 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
             display: none;
         }
         
-        /* Badge especial para facturas finales */
-        .badge-final {
-            background: linear-gradient(45deg, #28a745, #20c997);
-            color: white;
+        /* Vista compacta */
+        .compact-view .table td {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+        .compact-view .badge {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.4rem;
+        }
+        .compact-view .btn-sm {
+            padding: 0.125rem 0.25rem;
+            font-size: 0.75rem;
+        }
+        
+        .alert-dismissible {
+            animation: slideDown 0.3s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        /* Mejoras en el sistema de configuración */
+        .settings-section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        .settings-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        .settings-section h6 {
+            color: #007bff;
             font-weight: 600;
-            animation: pulse-final 2s infinite;
+            margin-bottom: 10px;
         }
-        
-        @keyframes pulse-final {
-            0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(40, 167, 69, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
-        }
-        
-        /* Estilos específicos para las secciones divididas */
-        .today-section {
-            border-left: 5px solid #28a745;
-            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-        }
-        
-        .previous-section {
-            border-left: 5px solid #ffc107;
-            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
-        }
-        
-        .section-divider {
-            height: 3px;
-            background: linear-gradient(90deg, #28a745, #ffc107);
-            margin: 2rem 0;
-            border-radius: 2px;
-        }
-        
-        .date-badge {
-            font-size: 0.9em;
-            padding: 0.5rem 1rem;
-            border-radius: 20px;
-            font-weight: 600;
-        }
-        
-        .today-badge {
-            background: linear-gradient(45deg, #28a745, #20c997);
-            color: white;
-        }
-        
-        .previous-badge {
-            background: linear-gradient(45deg, #ffc107, #ffb300);
-            color: #212529;
-        }
-
-        /* Estilos para el resumen de total seleccionado */
-        .selected-total-summary {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background-color: #007bff; /* Bootstrap primary blue */
-            color: white;
-            padding: 15px 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            z-index: 1050; /* Above most Bootstrap components */
+        .switch-container {
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-size: 1.1em;
-            font-weight: bold;
-            transition: transform 0.3s ease-in-out;
-            transform: translateX(150%); /* Start off-screen */
+            justify-content: space-between;
         }
-
-        .selected-total-summary.show {
-            transform: translateX(0); /* Slide in */
+        .switch-label {
+            font-size: 0.9rem;
+            color: #333;
         }
-
-        .selected-total-summary .badge {
-            background-color: white;
-            color: #007bff;
-            font-size: 0.9em;
-            padding: 5px 10px;
-            border-radius: 15px;
+        .form-switch .form-check-input {
+            width: 2.5em;
+            height: 1.25em;
+        }
+        /* Indicadores de estado mejorados */
+        .status-indicator {
+            position: fixed;
+            top: 50%;
+            right: 30px;
+            transform: translateY(-50%);
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-left: 4px solid #007bff;
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 1000;
+            max-width: 250px;
+        }
+        .status-indicator.show {
+            opacity: 1;
+            transform: translateY(-50%) translateX(-10px);
+        }
+        .status-indicator.success {
+            border-left-color: #28a745;
+        }
+        .status-indicator.warning {
+            border-left-color: #ffc107;
+        }
+        .status-indicator.error {
+            border-left-color: #dc3545;
         }
     </style>
 </head>
 <body>
     <?php include 'includes/header.php'; ?>
+    
+    <!-- Panel de configuración mejorado -->
+    <button class="settings-toggle" onclick="toggleSettingsPanel()" title="Configuración del Sistema">
+        <i class="fas fa-cog"></i>
+    </button>
+    
+    <div id="settingsPanel" class="settings-panel">
+        <div class="settings-section">
+            <h6><i class="fas fa-save me-2"></i>Guardado Automático</h6>
+            <div class="preference-item">
+                <div class="preference-control">
+                    <div>
+                        <span class="preference-label">Auto-guardar filtros</span>
+                        <div class="preference-description">Guarda automáticamente los filtros que uses</div>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="autoSaveFilters" checked>
+                    </div>
+                </div>
+            </div>
+            <div class="preference-item">
+                <div class="preference-control">
+                    <div>
+                        <span class="preference-label">Recordar vista</span>
+                        <div class="preference-description">Recuerda qué proveedores tienes abiertos/cerrados</div>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="rememberCollapsed" checked>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="settings-section">
+            <h6><i class="fas fa-sync me-2"></i>Actualización</h6>
+            <div class="preference-item">
+                <div class="preference-control">
+                    <div>
+                        <span class="preference-label">Auto-actualizar</span>
+                        <div class="preference-description">Actualiza la página cada 5 minutos</div>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="autoRefresh">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="settings-section">
+            <h6><i class="fas fa-eye me-2"></i>Vista</h6>
+            <div class="preference-item">
+                <div class="preference-control">
+                    <div>
+                        <span class="preference-label">Vista compacta</span>
+                        <div class="preference-description">Reduce el tamaño de las filas para ver más datos</div>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="compactView">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="settings-section">
+            <button class="btn btn-outline-danger w-100" onclick="clearAllData()">
+                <i class="fas fa-trash me-1"></i>Limpiar datos guardados
+            </button>
+        </div>
+    </div>
+    
+    <!-- Indicador de auto-guardado mejorado -->
+    <div id="autoSaveIndicator" class="auto-save-indicator">
+        <i class="fas fa-check-circle me-2"></i>Configuración guardada
+    </div>
+    <!-- Indicador de estado general -->
+    <div id="statusIndicator" class="status-indicator">
+        <div id="statusMessage"></div>
+    </div>
     
     <div class="container-fluid">
         <div class="row">
@@ -832,18 +1013,12 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
             <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
                 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
                     <h1 class="h2">
-                        <i class="fas fa-check-double me-2"></i>
-                        Facturas Finales - Divididas por Fecha
+                        <i class="fas fa-file-invoice-dollar me-2"></i>
+                        Facturas Completadas
                     </h1>
                     <div class="btn-toolbar mb-2 mb-md-0">
-                        <button type="button" class="btn btn-success me-2" id="exportTodayBtn">
-                            <i class="fas fa-file-excel me-1"></i> Exportar Hoy
-                        </button>
-                        <button type="button" class="btn btn-warning me-2" id="exportPreviousBtn">
-                            <i class="fas fa-file-excel me-1"></i> Exportar Anteriores
-                        </button>
-                        <button type="button" class="btn btn-primary" id="exportAllBtn">
-                            <i class="fas fa-file-excel me-1"></i> Exportar Todo
+                        <button type="button" class="btn btn-success" id="exportBtn">
+                            <i class="fas fa-file-excel me-1"></i> Exportar Excel
                         </button>
                     </div>
                 </div>
@@ -867,55 +1042,89 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
                     <?php unset($_SESSION['error_message']); ?>
                 <?php endif; ?>
                 
-                <!-- Estadísticas generales -->
-                <div class="row mb-4">
-                    <div class="col-md-4">
-                        <div class="card stats-card today-section">
-                            <div class="card-body text-center">
-                                <h5 class="card-title">
-                                    <i class="fas fa-calendar-day me-2"></i>
-                                    Finalizadas Hoy
-                                </h5>
-                                <h3 class="text-success"><?php echo count($today_invoices); ?></h3>
-                                <p class="mb-0">
-                                    <strong>$<?php echo number_format($today_stats['total_amount'], 2, ',', '.'); ?></strong>
-                                </p>
-                                <small class="text-muted"><?php echo $today_stats['suppliers_count']; ?> proveedores</small>
-                            </div>
+                <!-- Filtro especial para facturas completadas hoy -->
+                <div class="today-filter-container">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <h5 class="mb-1">
+                                <i class="fas fa-calendar-day me-2"></i>
+                                Ver facturas completadas hoy
+                            </h5>
+                            <p class="mb-0 opacity-75">
+                                Muestra únicamente las facturas que fueron marcadas como completadas hoy
+                            </p>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input today-filter-switch" type="checkbox"
+                                   id="todayOnlyFilter"
+                                   <?php echo (!empty($filter_today_only) && $filter_today_only === '1') ? 'checked' : ''; ?>
+                                   onchange="toggleTodayFilter()">
+                            <label class="form-check-label fw-bold" for="todayOnlyFilter">
+                                Solo Hoy
+                            </label>
                         </div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="card stats-card previous-section text-dark">
-                            <div class="card-body text-center">
-                                <h5 class="card-title">
-                                    <i class="fas fa-calendar-alt me-2"></i>
-                                    Total
-                                </h5>
-                                <h3 class="text-dark"><?php echo count($previous_invoices); ?></h3>
-                                <p class="mb-0">
-                                    <strong>$<?php echo number_format($previous_stats['total_amount'], 2, ',', '.'); ?></strong>
-                                </p>
-                                <small class="text-muted"><?php echo $previous_stats['suppliers_count']; ?> proveedores</small>
-                            </div>
-                        </div>
-                    </div>
-                   
                 </div>
                 
-                <!-- Filtros avanzados -->
+                <!-- Estadísticas rápidas -->
+                <?php 
+                $stats = $invoiceManager->getInvoiceStats($completed_invoices);
+                ?>
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body text-center">
+                                <i class="fas fa-file-invoice fa-2x text-success mb-2"></i>
+                                <h4 class="mb-0"><?php echo $stats['total_invoices']; ?></h4>
+                                <small class="text-muted">Facturas</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body text-center">
+                                <i class="fas fa-building fa-2x text-primary mb-2"></i>
+                                <h4 class="mb-0"><?php echo $stats['suppliers_count']; ?></h4>
+                                <small class="text-muted">Proveedores</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body text-center">
+                                <i class="fas fa-dollar-sign fa-2x text-warning mb-2"></i>
+                                <h4 class="mb-0">$<?php echo number_format($stats['total_amount'], 0, ',', '.'); ?></h4>
+                                <small class="text-muted">Total</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body text-center">
+                                <i class="fas fa-calendar-check fa-2x text-info mb-2"></i>
+                                <h4 class="mb-0"><?php echo $stats['today_count']; ?></h4>
+                                <small class="text-muted">Completadas Hoy</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Filtros -->
                 <div class="card shadow-sm mb-4">
                     <div class="card-header bg-secondary text-white">
                         <h5 class="mb-0">
                             <i class="fas fa-filter me-2"></i>
-                            Filtros Avanzados de Búsqueda
+                            Filtros de Búsqueda
                         </h5>
                     </div>
                     <div class="card-body">
                         <form method="GET" action="" class="row g-3" id="filtersForm">
-                            <!-- Proveedor con autocompletado -->
-                            <div class="col-md-6">
+                            <!-- Campo oculto para mantener el filtro de hoy -->
+                            <input type="hidden" name="filter_today_only" value="<?php echo $filter_today_only; ?>">
+                            
+                            <div class="col-md-4">
                                 <label for="filter_supplier" class="form-label">
-                                    <i class="fas fa-building me-1"></i>
+                                    <i class="fas fa-search me-1"></i>
                                     Buscar Proveedor
                                 </label>
                                 <div class="supplier-search-container">
@@ -930,11 +1139,6 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
                                     <div class="supplier-suggestions" id="supplierSuggestions"></div>
                                 </div>
                             </div>
-                            
-                            <!-- Búsqueda general -->
-                           
-                            
-                            <!-- Fecha desde -->
                             <div class="col-md-3">
                                 <label for="filter_date_from" class="form-label">
                                     <i class="fas fa-calendar-alt me-1"></i>
@@ -942,8 +1146,6 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
                                 </label>
                                 <input type="date" class="form-control" id="filter_date_from" name="filter_date_from" value="<?php echo htmlspecialchars($filter_date_from); ?>">
                             </div>
-                            
-                            <!-- Fecha hasta -->
                             <div class="col-md-3">
                                 <label for="filter_date_to" class="form-label">
                                     <i class="fas fa-calendar-alt me-1"></i>
@@ -951,16 +1153,8 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
                                 </label>
                                 <input type="date" class="form-control" id="filter_date_to" name="filter_date_to" value="<?php echo htmlspecialchars($filter_date_to); ?>">
                             </div>
-                            
-                            <!-- Monto mínimo -->
-                           
-                            
-                            <!-- Monto máximo -->
-                        
-                            
-                            <!-- Botones de acción -->
-                            <div class="col-12">
-                                <div class="d-flex gap-2 justify-content-center">
+                            <div class="col-md-2 d-flex align-items-end">
+                                <div class="d-grid gap-2 w-100">
                                     <button type="submit" class="btn btn-primary" id="filterBtn">
                                         <span class="btn-text">
                                             <i class="fas fa-filter me-1"></i> Filtrar
@@ -978,45 +1172,250 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
                     </div>
                 </div>
                 
-                <!-- Controles globales -->
-                <div class="d-flex justify-content-between mb-3">
-                    <div>
-                        <button id="expandAllBtn" class="btn btn-sm btn-outline-primary me-2">
-                            <i class="fas fa-expand me-1"></i> Expandir Todo
-                        </button>
-                        <button id="collapseAllBtn" class="btn btn-sm btn-outline-secondary">
-                            <i class="fas fa-compress me-1"></i> Colapsar Todo
-                        </button>
+                <div class="card shadow-sm">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list me-2"></i>
+                            Listado de Facturas Completadas
+                            <?php if (!empty($filter_today_only) && $filter_today_only === '1'): ?>
+                                <span class="badge bg-warning text-dark ms-2">
+                                    <i class="fas fa-calendar-day me-1"></i>Solo Hoy
+                                </span>
+                            <?php endif; ?>
+                        </h5>
                     </div>
-                    <div>
-                        <span class="today-badge date-badge me-2">
-                            <i class="fas fa-calendar-day me-1"></i>
-                            Hoy: <?php echo date('d/m/Y'); ?>
-                        </span>
-                        <span class="previous-badge date-badge">
-                            <i class="fas fa-history me-1"></i>
-                            Anteriores
-                        </span>
+                    <div class="card-body">
+                        <?php if (count($completed_invoices) > 0): ?>
+                            <?php
+                            // Eliminar duplicados y agrupar por proveedor
+                            $unique_invoices = [];
+                            $seen = [];
+                            foreach ($completed_invoices as $invoice) {
+                                $key = $invoice['docnum_interno_sap'];
+                                if (!in_array($key, $seen)) {
+                                    $seen[] = $key;
+                                    $unique_invoices[] = $invoice;
+                                }
+                            }
+                            // Agrupar facturas por proveedor
+                            $invoices_by_supplier = [];
+                            foreach ($unique_invoices as $invoice) {
+                                $supplier_name = $invoice['nombre'];
+                                if (!isset($invoices_by_supplier[$supplier_name])) {
+                                    $invoices_by_supplier[$supplier_name] = [];
+                                }
+                                $invoices_by_supplier[$supplier_name][] = $invoice;
+                            }
+                            // Ordenar proveedores alfabéticamente
+                            ksort($invoices_by_supplier);
+                            // Calcular totales por proveedor
+                            $supplier_totals = [];
+                            foreach ($invoices_by_supplier as $supplier => $invoices) {
+                                $total = 0;
+                                $today_count = 0;
+                                $today = date('Y-m-d');
+                                
+                                foreach ($invoices as $invoice) {
+                                    $total += abs(floatval($invoice['saldo_pendiente'] ?? 0));
+                                    
+                                    // Contar facturas completadas hoy - CORREGIDO
+                                    $created_date = safeDateFormat($invoice['created_at'] ?? '', 'Y-m-d');
+                                    if ($created_date === $today) {
+                                        $today_count++;
+                                    }
+                                }
+                                $supplier_totals[$supplier] = [
+                                    'total' => $total,
+                                    'count' => count($invoices),
+                                    'today_count' => $today_count
+                                ];
+                            }
+                            ?>
+                            <div class="table-responsive" id="invoicesContainer">
+                                <?php 
+                                $supplierIndex = 0;
+                                foreach ($invoices_by_supplier as $supplier_name => $supplier_invoices): 
+                                    $supplierIndex++;
+                                ?>
+                                    <!-- Encabezado del proveedor -->
+                                    <div class="supplier-header" data-supplier-id="supplier-<?= $supplierIndex ?>">
+                                        <div class="d-flex justify-content-between align-items-center p-3">
+                                            <div class="d-flex align-items-center">
+                                                <button class="btn btn-sm btn-toggle me-2" data-bs-toggle="collapse"
+                                                        data-bs-target=".supplier-<?= $supplierIndex ?>"
+                                                        data-supplier-index="<?= $supplierIndex ?>"
+                                                        aria-expanded="true" aria-controls="supplier-<?= $supplierIndex ?>">
+                                                    <i class="fas fa-chevron-down"></i>
+                                                </button>
+                                                <div>
+                                                    <h6 class="mb-1" style="color: #495057; font-weight: 600;">
+                                                        <i class="fas fa-building me-2" style="color: #007bff;"></i>
+                                                        <?php echo htmlspecialchars($supplier_name); ?>
+                                                    </h6>
+                                                    <small class="text-muted">
+                                                        <i class="fas fa-file-invoice me-1"></i>
+                                                        <?php echo $supplier_totals[$supplier_name]['count']; ?> factura(s)
+                                                        <?php if ($supplier_totals[$supplier_name]['today_count'] > 0): ?>
+                                                            | <i class="fas fa-calendar-check me-1"></i>
+                                                            <?php echo $supplier_totals[$supplier_name]['today_count']; ?> hoy
+                                                        <?php endif; ?>
+                                                    </small>
+                                                </div>
+                                            </div>
+                                            <div class="text-end">
+                                                <?php if ($supplier_totals[$supplier_name]['today_count'] > 0): ?>
+                                                    <span class="supplier-count-badge me-2">
+                                                        <i class="fas fa-calendar-check me-1"></i>
+                                                        <?php echo $supplier_totals[$supplier_name]['today_count']; ?> hoy
+                                                    </span>
+                                                <?php endif; ?>
+                                                <span class="supplier-total-badge">
+                                                    <i class="fas fa-dollar-sign me-1"></i>
+                                                    <?php echo formatColombiaPesos($supplier_totals[$supplier_name]['total']); ?>
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- Tabla de facturas del proveedor -->
+                                    <table class="table table-striped table-hover invoice-table supplier-<?= $supplierIndex ?> collapse show" id="invoicesTable">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>N° SAP</th>
+                                                <th>NIT</th>
+                                                <th>Fecha Vencimiento</th>
+                                                <th>Valor</th>
+                                                <th>Prioridad</th>
+                                                <th>Estado</th>
+                                                <th>Marcar Final</th>
+                                                <th>Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php 
+                                            $today = date('Y-m-d');
+                                            foreach ($supplier_invoices as $invoice):
+                                                // CORREGIDO: Usar la función safeDateFormat
+                                                $created_date = safeDateFormat($invoice['created_at'] ?? '', 'Y-m-d');
+                                                $isCompletedToday = ($created_date === $today);
+                                                $positiveValue = getPositiveValue($invoice['saldo_pendiente'] ?? 0);
+                                            ?>
+                                                <tr class="<?= $isCompletedToday ? 'today-completed-invoice' : '' ?>" data-normal-price="<?= $positiveValue ?>">
+                                                    <td>
+                                                        <strong><?php echo htmlspecialchars($invoice['docnum_interno_sap'] ?? 'N/A'); ?></strong>
+                                                        <?php if ($isCompletedToday): ?>
+                                                            <span class="badge bg-info ms-1" title="Completada hoy">
+                                                                <i class="fas fa-star"></i>
+                                                            </span>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                    <td>
+                                                        <strong><?php echo htmlspecialchars($invoice['codigo_sn'] ?? 'N/A'); ?></strong>
+                                                    </td>
+                                                    <td>
+                                                        <?php echo formatDate($invoice['fecha_vencimiento']); ?>
+                                                        <?php if ($isCompletedToday): ?>
+                                                            <br><small class="text-info">
+                                                                <i class="fas fa-check-circle me-1"></i>Completada hoy
+                                                            </small>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                    <td><strong><?php echo formatColombiaPesos($invoice['saldo_pendiente'] ?? 0); ?></strong></td>
+                                                    <td>
+                                                        <?php
+                                                        $priority = strtolower(trim($invoice['priority'] ?? 'baja'));
+                                                        $priorityClass = getPriorityClass($priority);
+                                                        ?>
+                                                        <span class="priority-badge" style="background-color: <?php echo $priorityClass['bg']; ?>; color: <?php echo $priorityClass['text']; ?>; border: 1px solid <?php echo $priorityClass['border']; ?>;">
+                                                            <?php echo ucfirst($priority); ?>
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span class="badge bg-success">
+                                                            <i class="fas fa-check-circle me-1"></i>
+                                                            <?php echo htmlspecialchars($invoice['status']); ?>
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <form method="POST" action="" class="d-inline">
+                                                            <input type="hidden" name="invoice_id" value="<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>">
+                                                            <button type="button" name="mark_final" class="btn btn-warning btn-sm position-relative"
+                                                                    onclick="showCustomConfirm(this.form, '<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>')">
+                                                                <i class="fas fa-check-square me-1"></i>
+                                                                Marcar Final
+                                                                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                                                                    <i class="fas fa-exclamation-circle"></i>
+                                                                </span>
+                                                            </button>
+                                                        </form>
+                                                    </td>
+                                                    <td>
+                                                        <a href="view_invoice.php?docnum_interno_sap=<?php echo htmlspecialchars($invoice['docnum_interno_sap']); ?>" class="btn btn-sm btn-info" title="Ver detalles">
+                                                            <i class="fas fa-eye"></i>
+                                                        </a>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                <?php endforeach; ?>
+                                <!-- Controles globales para expandir/colapsar -->
+                                <div class="d-flex justify-content-end mb-3">
+                                    <button id="expandAllBtn" class="btn btn-sm btn-outline-primary me-2">
+                                        <i class="fas fa-expand me-1"></i> Expandir Todos
+                                    </button>
+                                    <button id="collapseAllBtn" class="btn btn-sm btn-outline-secondary">
+                                        <i class="fas fa-compress me-1"></i> Colapsar Todos
+                                    </button>
+                                </div>
+                                <!-- Resumen total -->
+                                <div class="total-summary mt-4 p-3">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <h6 class="mb-2" style="color: #1976d2;">
+                                                <i class="fas fa-chart-bar me-2"></i>Resumen Total
+                                            </h6>
+                                            <p class="mb-1">
+                                                <strong>Proveedores:</strong> <?php echo count($invoices_by_supplier); ?>
+                                            </p>
+                                            <p class="mb-1">
+                                                <strong>Facturas:</strong> <?php echo count($unique_invoices); ?>
+                                            </p>
+                                            <p class="mb-0">
+                                                <strong>Completadas hoy:</strong> <?php echo $stats['today_count']; ?> |
+                                                <strong>Prioridad Alta:</strong> <?php echo $stats['priority_breakdown']['alta']; ?> |
+                                                <strong>Media:</strong> <?php echo $stats['priority_breakdown']['media']; ?> |
+                                                <strong>Baja:</strong> <?php echo $stats['priority_breakdown']['baja']; ?>
+                                            </p>
+                                        </div>
+                                        <div class="col-md-6 text-end">
+                                            <h5 class="mb-0" style="color: #1976d2;">
+                                                <i class="fas fa-dollar-sign me-1"></i>
+                                                <?php echo formatColombiaPesos(array_sum(array_column($supplier_totals, 'total'))); ?>
+                                            </h5>
+                                            <small class="text-muted">Total general</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                        <?php else: ?>
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                No hay facturas completadas
+                                <?php if (!empty($filter_today_only) && $filter_today_only === '1'): ?>
+                                    completadas hoy
+                                <?php endif; ?>
+                                <?php if (!empty($filter_supplier) || !empty($filter_date_from) || !empty($filter_date_to)): ?>
+                                    con los filtros aplicados.
+                                <?php else: ?>
+                                    en el sistema.
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
-                
-                <!-- Sección de facturas finalizadas HOY -->
-                <?php echo renderInvoicesSection($today_invoices, 'Facturas Finalizadas Hoy (' . date('d/m/Y') . ')', 'today', 'success'); ?>
-                
-                <!-- Divisor visual -->
-                <div class="section-divider"></div>
-                
-                <!-- Sección de facturas finalizadas en DÍAS ANTERIORES -->
-                <?php echo renderInvoicesSection($previous_invoices, 'Facturas Finalizadas en Días Anteriores', 'previous', 'secondary'); ?>
-                
             </main>
         </div>
-    </div>
-
-    <!-- Resumen flotante del total seleccionado -->
-    <div id="totalSelectedSummary" class="selected-total-summary">
-        Total Seleccionado: <span id="selectedAmountDisplay">$0,00</span>
-        <span class="badge" id="selectedCountDisplay">0 facturas</span>
     </div>
     
     <?php include 'includes/footer.php'; ?>
@@ -1025,403 +1424,1111 @@ $total_stats = $finalInvoiceManager->getInvoiceStats($all_invoices);
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     
     <script>
-        // Variables globales para búsqueda
-        let searchTimeout;
-        let currentSuggestionIndex = -1;
-        
-        // Variables para la selección de facturas
-        const selectedInvoiceIds = new Set();
-        let totalSelectedAmount = 0;
-
-        // Función para actualizar el display del total seleccionado
-        function updateTotalDisplay() {
-            document.getElementById('selectedAmountDisplay').textContent = `$${totalSelectedAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-            document.getElementById('selectedCountDisplay').textContent = `${selectedInvoiceIds.size} factura(s)`;
-
-            const summaryDiv = document.getElementById('totalSelectedSummary');
-            if (selectedInvoiceIds.size > 0) {
-                summaryDiv.classList.add('show');
-            } else {
-                summaryDiv.classList.remove('show');
-            }
-        }
-
-        // Función para manejar la selección individual de facturas
-        function handleInvoiceCheckboxChange(event) {
-            const checkbox = event.target;
-            const invoiceId = checkbox.dataset.invoiceId;
-            const invoiceAmount = parseFloat(checkbox.dataset.invoiceAmount);
-            const supplierName = checkbox.dataset.supplierName;
-            const sectionId = checkbox.dataset.sectionId;
-
-            if (checkbox.checked) {
-                selectedInvoiceIds.add(invoiceId);
-                totalSelectedAmount += invoiceAmount;
-            } else {
-                selectedInvoiceIds.delete(invoiceId);
-                totalSelectedAmount -= invoiceAmount;
-            }
-            updateTotalDisplay();
-            updateSelectAllCheckbox(supplierName, sectionId);
-        }
-
-        // Función para manejar la selección de todas las facturas de un proveedor
-        function handleSelectAllSupplierCheckboxChange(event) {
-            const selectAllCheckbox = event.target;
-            const supplierName = selectAllCheckbox.dataset.supplierName;
-            const sectionId = selectAllCheckbox.dataset.sectionId;
-            const isChecked = selectAllCheckbox.checked;
-
-            const supplierInvoices = document.querySelectorAll(`.invoice-checkbox[data-supplier-name="${supplierName}"][data-section-id="${sectionId}"]`);
-            supplierInvoices.forEach(checkbox => {
-                const invoiceId = checkbox.dataset.invoiceId;
-                const invoiceAmount = parseFloat(checkbox.dataset.invoiceAmount);
-
-                if (isChecked) {
-                    if (!selectedInvoiceIds.has(invoiceId)) {
-                        selectedInvoiceIds.add(invoiceId);
-                        totalSelectedAmount += invoiceAmount;
-                    }
-                    checkbox.checked = true;
-                } else {
-                    if (selectedInvoiceIds.has(invoiceId)) {
-                        selectedInvoiceIds.delete(invoiceId);
-                        totalSelectedAmount -= invoiceAmount;
-                    }
-                    checkbox.checked = false;
-                }
-            });
-            updateTotalDisplay();
-        }
-
-        // Función para actualizar el estado del checkbox "Seleccionar todo" de un proveedor
-        function updateSelectAllCheckbox(supplierName, sectionId) {
-            const supplierCheckboxes = document.querySelectorAll(`.invoice-checkbox[data-supplier-name="${supplierName}"][data-section-id="${sectionId}"]`);
-            const selectAllCheckbox = document.querySelector(`.select-all-supplier-checkbox[data-supplier-name="${supplierName}"][data-section-id="${sectionId}"]`);
-
-            if (!selectAllCheckbox) return;
-
-            let allChecked = true;
-            let anyChecked = false;
-
-            if (supplierCheckboxes.length === 0) {
-                allChecked = false; // No invoices, so "select all" should not be checked
-            } else {
-                supplierCheckboxes.forEach(checkbox => {
-                    if (checkbox.checked) {
-                        anyChecked = true;
-                    } else {
-                        allChecked = false;
-                    }
-                });
-            }
+    function exportToExcel() {
+        try {
+            window.storageManager?.showStatusMessage('Generando archivo Excel con facturas visibles...', 'info');
             
-            selectAllCheckbox.checked = allChecked;
-            selectAllCheckbox.indeterminate = anyChecked && !allChecked;
-        }
-
-        // Función para buscar proveedores
-        function searchSuppliers(query) {
-            if (query.length < 2) {
-                hideSuggestions();
-                return;
-            }
-            
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-                fetch(`?action=search_suppliers&q=${encodeURIComponent(query)}`)
-                    .then(response => response.json())
-                    .then(suppliers => {
-                        showSuggestions(suppliers);
-                    })
-                    .catch(error => {
-                        console.error('Error al buscar proveedores:', error);
-                        hideSuggestions();
-                    });
-            }, 300);
-        }
-        
-        // Mostrar sugerencias
-        function showSuggestions(suppliers) {
-            const suggestionsContainer = document.getElementById('supplierSuggestions');
-            suggestionsContainer.innerHTML = '';
-            currentSuggestionIndex = -1;
-            
-            if (suppliers.length === 0) {
-                suggestionsContainer.innerHTML = '<div class="no-results">No se encontraron proveedores</div>';
-                suggestionsContainer.style.display = 'block';
-                return;
-            }
-            
-            suppliers.forEach((supplier, index) => {
-                const suggestionDiv = document.createElement('div');
-                suggestionDiv.className = 'supplier-suggestion';
-                suggestionDiv.textContent = supplier;
-                suggestionDiv.addEventListener('click', () => selectSupplier(supplier));
-                suggestionsContainer.appendChild(suggestionDiv);
-            });
-            
-            suggestionsContainer.style.display = 'block';
-        }
-        
-        // Ocultar sugerencias
-        function hideSuggestions() {
-            document.getElementById('supplierSuggestions').style.display = 'none';
-            currentSuggestionIndex = -1;
-        }
-        
-        // Seleccionar proveedor
-        function selectSupplier(supplier) {
-            document.getElementById('filter_supplier').value = supplier;
-            hideSuggestions();
-        }
-        
-        // Navegación con teclado en sugerencias
-        function handleKeyNavigation(e) {
-            const suggestions = document.querySelectorAll('.supplier-suggestion');
-            
-            if (suggestions.length === 0) return;
-            
-            switch (e.key) {
-                case 'ArrowDown':
-                    e.preventDefault();
-                    currentSuggestionIndex = Math.min(currentSuggestionIndex + 1, suggestions.length - 1);
-                    updateActiveSuggestion(suggestions);
-                    break;
-                case 'ArrowUp':
-                    e.preventDefault();
-                    currentSuggestionIndex = Math.max(currentSuggestionIndex - 1, -1);
-                    updateActiveSuggestion(suggestions);
-                    break;
-                case 'Enter':
-                    e.preventDefault();
-                    if (currentSuggestionIndex >= 0) {
-                        selectSupplier(suggestions[currentSuggestionIndex].textContent);
-                    }
-                    break;
-                case 'Escape':
-                    hideSuggestions();
-                    break;
-            }
-        }
-        
-        // Actualizar sugerencia activa
-        function updateActiveSuggestion(suggestions) {
-            suggestions.forEach((suggestion, index) => {
-                suggestion.classList.toggle('active', index === currentSuggestionIndex);
-            });
-        }
-        
-        // Función para exportar tablas específicas
-        function exportTableToExcel(sectionId, filename) {
-            const tables = document.querySelectorAll(`#${sectionId}Container table`);
-            if (tables.length === 0) {
-                alert('No hay datos para exportar en esta sección');
-                return;
-            }
-            
+            // Crear nuevo libro de trabajo
             const wb = XLSX.utils.book_new();
             
-            tables.forEach((table, index) => {
-                // Clone the table to remove the checkbox column before export
-                const clonedTable = table.cloneNode(true);
-                const headerCells = clonedTable.querySelectorAll('thead th');
-                const bodyRows = clonedTable.querySelectorAll('tbody tr');
-
-                // Remove the first header cell (checkbox column)
-                if (headerCells.length > 0) {
-                    headerCells[0].remove();
-                }
-
-                // Remove the first cell (checkbox) from each body row
-                bodyRows.forEach(row => {
-                    const firstCell = row.querySelector('td');
-                    if (firstCell) {
-                        firstCell.remove();
+            // 1. HOJA DE RESUMEN POR PROVEEDORES (solo visibles)
+            const supplierData = [];
+            
+            // Encabezados para resumen por proveedores
+            supplierData.push(['Nombre Proveedor', 'NIT', 'Total a Pagar (COP)', 'Facturas por Proveedor']);
+            
+            // Obtener solo proveedores visibles (expandidos)
+            const visibleSupplierHeaders = document.querySelectorAll('.supplier-header');
+            let totalGeneral = 0;
+            let totalFacturas = 0;
+            
+            visibleSupplierHeaders.forEach(header => {
+                const supplierName = header.querySelector('h6').textContent.trim().replace(/^\s*\S+\s*/, '');
+                const supplierIndex = header.querySelector('.btn-toggle').getAttribute('data-supplier-index');
+                const table = document.querySelector(`.supplier-${supplierIndex}`);
+                
+                // Solo procesar si la tabla está visible (expandida)
+                if (table && table.classList.contains('show')) {
+                    const visibleRows = table.querySelectorAll('tbody tr:not([style*="display: none"])');
+                    let supplierTotal = 0;
+                    let supplierNIT = '';
+                    let invoiceCount = visibleRows.length;
+                    
+                    // Calcular total del proveedor usando valores positivos
+                    visibleRows.forEach(row => {
+                        const cells = row.querySelectorAll('td');
+                        if (cells.length >= 4) {
+                            // NIT está en la segunda columna
+                            if (!supplierNIT) {
+                                supplierNIT = cells[1].textContent.trim();
+                            }
+                            // Usar el valor positivo almacenado en data-normal-price
+                            const normalPrice = parseFloat(row.getAttribute('data-normal-price')) || 0;
+                            supplierTotal += normalPrice;
+                        }
+                    });
+                    
+                    if (invoiceCount > 0) {
+                        supplierData.push([
+                            supplierName,
+                            supplierNIT,
+                            supplierTotal,
+                            invoiceCount
+                        ]);
+                        
+                        totalGeneral += supplierTotal;
+                        totalFacturas += invoiceCount;
                     }
-                });
-
-                const ws = XLSX.utils.table_to_sheet(clonedTable);
-                const sheetName = `Tabla_${index + 1}`;
-                XLSX.utils.book_append_sheet(wb, ws, sheetName);
+                }
             });
             
-            const fileName = `${filename}_${new Date().toISOString().slice(0,10)}.xlsx`;
+            // Agregar fila de totales
+            supplierData.push(['', '', '', '']);
+            supplierData.push(['TOTALES', '', totalGeneral, totalFacturas]);
+            
+            // Crear hoja de resumen
+            const wsSuppliers = XLSX.utils.aoa_to_sheet(supplierData);
+            
+            // Formatear columnas
+            wsSuppliers['!cols'] = [
+                { width: 35 }, // Nombre Proveedor
+                { width: 15 }, // NIT
+                { width: 20 }, // Total a Pagar (COP)
+                { width: 25 }  // Facturas por Proveedor
+            ];
+            
+            XLSX.utils.book_append_sheet(wb, wsSuppliers, "Resumen por Proveedores");
+            
+            // 2. HOJA DE DETALLE DE FACTURAS VISIBLES
+            const detailData = [];
+            detailData.push(['Proveedor', 'NIT', 'N° SAP', 'Fecha Vencimiento', 'Valor Individual (COP)', 'Prioridad', 'Estado']);
+            
+            visibleSupplierHeaders.forEach(header => {
+                const supplierName = header.querySelector('h6').textContent.trim().replace(/^\s*\S+\s*/, '');
+                const supplierIndex = header.querySelector('.btn-toggle').getAttribute('data-supplier-index');
+                const table = document.querySelector(`.supplier-${supplierIndex}`);
+                
+                // Solo procesar tablas visibles
+                if (table && table.classList.contains('show')) {
+                    const visibleRows = table.querySelectorAll('tbody tr:not([style*="display: none"])');
+                    
+                    visibleRows.forEach(row => {
+                        const cells = row.querySelectorAll('td');
+                        if (cells.length >= 6) {
+                            const normalPrice = parseFloat(row.getAttribute('data-normal-price')) || 0;
+                            
+                            detailData.push([
+                                supplierName,
+                                cells[1].textContent.trim(), // NIT
+                                cells[0].textContent.trim(), // N° SAP
+                                cells[2].textContent.trim().split('\n')[0], // Fecha
+                                normalPrice, // Valor positivo
+                                cells[4].textContent.trim(), // Prioridad
+                                cells[5].textContent.trim()  // Estado
+                            ]);
+                        }
+                    });
+                    
+                    // Agregar subtotal por proveedor
+                    const supplierTotal = supplierData.find(row => row[0] === supplierName);
+                    if (supplierTotal) {
+                        detailData.push([
+                            `SUBTOTAL ${supplierName}`,
+                            '',
+                            '',
+                            '',
+                            supplierTotal[2],
+                            '',
+                            ''
+                        ]);
+                        detailData.push(['', '', '', '', '', '', '']); // Fila vacía
+                    }
+                }
+            });
+            
+            const wsDetail = XLSX.utils.aoa_to_sheet(detailData);
+            wsDetail['!cols'] = [
+                { width: 35 }, // Proveedor
+                { width: 15 }, // NIT
+                { width: 15 }, // N° SAP
+                { width: 20 }, // Fecha Vencimiento
+                { width: 20 }, // Valor Individual (COP)
+                { width: 12 }, // Prioridad
+                { width: 15 }  // Estado
+            ];
+            
+            XLSX.utils.book_append_sheet(wb, wsDetail, "Detalle Facturas Visibles");
+            
+            // 3. HOJA DE ESTADÍSTICAS DE FACTURAS VISIBLES
+            const statsData = [];
+            statsData.push(['ESTADÍSTICAS DE FACTURAS VISIBLES', '']);
+            statsData.push(['', '']);
+            statsData.push(['Total de Proveedores Visibles', supplierData.length - 2]); // Excluir encabezados y totales
+            statsData.push(['Total de Facturas Visibles', totalFacturas]);
+            statsData.push(['Total General a Pagar (COP)', `$${totalGeneral.toLocaleString()} COP`]);
+            statsData.push(['Promedio por Factura (COP)', totalFacturas > 0 ? `$${Math.round(totalGeneral / totalFacturas).toLocaleString()} COP` : '$0 COP']);
+            statsData.push(['Promedio por Proveedor (COP)', (supplierData.length - 2) > 0 ? `$${Math.round(totalGeneral / (supplierData.length - 2)).toLocaleString()} COP` : '$0 COP']);
+            statsData.push(['', '']);
+            statsData.push(['TOP 5 PROVEEDORES VISIBLES POR MONTO', '']);
+            
+            // Ordenar proveedores visibles por monto
+            const sortedSuppliers = supplierData
+                .slice(1, -2) // Excluir encabezados y totales
+                .sort((a, b) => b[2] - a[2])
+                .slice(0, 5);
+            
+            sortedSuppliers.forEach((supplier, index) => {
+                statsData.push([`${index + 1}. ${supplier[0]}`, `$${supplier[2].toLocaleString()} COP`]);
+            });
+            
+            const wsStats = XLSX.utils.aoa_to_sheet(statsData);
+            wsStats['!cols'] = [{ width: 35 }, { width: 25 }];
+            
+            XLSX.utils.book_append_sheet(wb, wsStats, "Estadísticas Visibles");
+            
+            // Generar nombre de archivo descriptivo
+            const now = new Date();
+            const dateStr = now.toISOString().slice(0, 10);
+            const timeStr = now.toTimeString().slice(0, 5).replace(':', '');
+            const fileName = `facturas_visibles_pesos_colombianos_${dateStr}_${timeStr}.xlsx`;
+            
+            // Descargar archivo
             XLSX.writeFile(wb, fileName);
+            
+            window.storageManager?.showStatusMessage(`Excel generado: ${totalFacturas} facturas visibles en pesos colombianos`, 'success');
+            
+        } catch (error) {
+            console.error('Error exportando a Excel:', error);
+            window.storageManager?.showStatusMessage('Error al generar archivo Excel', 'error');
+        }
+    }
+
+    
+    // Sistema de localStorage mejorado y más fácil de usar
+    class ImprovedInvoiceStorage {
+        constructor() {
+            this.storageKey = 'invoiceSystemV2';
+            this.userId = '<?php echo $user_id; ?>';
+            this.userRole = '<?php echo $role; ?>';
+            this.autoSaveInterval = null;
+            this.preferences = this.loadPreferences();
+            this.init();
+        }
+
+        init() {
+            console.log('🚀 Sistema de almacenamiento mejorado iniciado');
+            this.loadUserState();
+            this.setupEventListeners();
+            this.startAutoSave();
+            this.applyPreferences();
+        }
+
+        // Cargar preferencias con valores por defecto más inteligentes
+        loadPreferences() {
+            const defaultPreferences = {
+                autoSaveFilters: true,
+                rememberCollapsed: true,
+                autoRefresh: false,
+                compactView: false,
+                collapsedSuppliers: [],
+                lastFilters: {},
+                scrollPosition: 0,
+                lastVisit: Date.now()
+            };
+
+            try {
+                const saved = localStorage.getItem(`${this.storageKey}_prefs_${this.userId}`);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    return { ...defaultPreferences, ...parsed };
+                }
+                return defaultPreferences;
+            } catch (error) {
+                console.warn('Error cargando preferencias, usando valores por defecto');
+                return defaultPreferences;
+            }
+        }
+
+        // Guardar preferencias con validación
+        savePreferences() {
+            try {
+                this.preferences.lastVisit = Date.now();
+                localStorage.setItem(`${this.storageKey}_prefs_${this.userId}`, JSON.stringify(this.preferences));
+                this.showStatusMessage('Configuración guardada', 'success');
+            } catch (error) {
+                console.error('Error guardando preferencias:', error);
+                this.showStatusMessage('Error al guardar configuración', 'error');
+            }
+        }
+
+        // Cargar estado del usuario de manera más robusta
+        loadUserState() {
+            try {
+                const saved = localStorage.getItem(`${this.storageKey}_state_${this.userId}`);
+                if (!saved) return;
+
+                const state = JSON.parse(saved);
+                
+                // Verificar si los datos no son muy antiguos (más de 7 días)
+                if (state.timestamp && (Date.now() - state.timestamp) > 7 * 24 * 60 * 60 * 1000) {
+                    console.log('Datos antiguos encontrados, limpiando...');
+                    this.clearUserState();
+                    return;
+                }
+
+                // Restaurar filtros si está habilitado
+                if (this.preferences.autoSaveFilters && state.filters) {
+                    this.restoreFilters(state.filters);
+                }
+
+                // Restaurar estado de proveedores colapsados
+                if (this.preferences.rememberCollapsed && state.collapsedSuppliers) {
+                    setTimeout(() => {
+                        this.restoreCollapsedState(state.collapsedSuppliers);
+                    }, 500);
+                }
+
+                // Restaurar posición de scroll gradualmente
+                if (state.scrollPosition && state.scrollPosition > 0) {
+                    setTimeout(() => {
+                        window.scrollTo({
+                            top: state.scrollPosition,
+                            behavior: 'smooth'
+                        });
+                    }, 1000);
+                }
+            } catch (error) {
+                console.error('Error cargando estado del usuario:', error);
+                this.clearUserState();
+            }
+        }
+
+        // Guardar estado del usuario de manera más eficiente
+        saveUserState() {
+            if (!this.preferences.autoSaveFilters && !this.preferences.rememberCollapsed) {
+                return; // No guardar si ambas opciones están desactivadas
+            }
+
+            try {
+                const state = {
+                    timestamp: Date.now(),
+                    userId: this.userId,
+                    userRole: this.userRole
+                };
+
+                if (this.preferences.autoSaveFilters) {
+                    state.filters = this.getCurrentFilters();
+                }
+
+                if (this.preferences.rememberCollapsed) {
+                    state.collapsedSuppliers = this.getCollapsedSuppliers();
+                }
+
+                state.scrollPosition = Math.max(0, window.pageYOffset);
+
+                localStorage.setItem(`${this.storageKey}_state_${this.userId}`, JSON.stringify(state));
+                
+            } catch (error) {
+                console.error('Error guardando estado:', error);
+                // Si hay error de espacio, limpiar datos antiguos
+                this.cleanupOldData();
+            }
+        }
+
+        // Obtener filtros actuales de manera más robusta
+        getCurrentFilters() {
+            const form = document.getElementById('filtersForm');
+            if (!form) return {};
+
+            const filters = {};
+            const formData = new FormData(form);
+            
+            for (let [key, value] of formData.entries()) {
+                if (value && value.trim() !== '') {
+                    filters[key] = value.trim();
+                }
+            }
+
+            return filters;
+        }
+
+        // Restaurar filtros con validación
+        restoreFilters(filters) {
+            if (!filters || typeof filters !== 'object') return;
+
+            Object.keys(filters).forEach(key => {
+                const element = document.getElementById(key) || document.querySelector(`[name="${key}"]`);
+                if (element && filters[key]) {
+                    element.value = filters[key];
+                    // Disparar evento change para actualizar la UI
+                    element.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            });
+        }
+
+        // Obtener proveedores colapsados de manera más eficiente
+        getCollapsedSuppliers() {
+            const collapsed = [];
+            document.querySelectorAll('.btn-toggle').forEach(button => {
+                const icon = button.querySelector('i');
+                if (icon && icon.classList.contains('fa-chevron-right')) {
+                    const supplierIndex = button.getAttribute('data-supplier-index');
+                    if (supplierIndex) {
+                        collapsed.push(parseInt(supplierIndex));
+                    }
+                }
+            });
+            return collapsed;
+        }
+
+        // Restaurar estado de proveedores colapsados de manera más suave
+        restoreCollapsedState(collapsedSuppliers) {
+            if (!Array.isArray(collapsedSuppliers)) return;
+
+            collapsedSuppliers.forEach(supplierIndex => {
+                const button = document.querySelector(`[data-supplier-index="${supplierIndex}"]`);
+                if (button) {
+                    const target = button.getAttribute('data-bs-target');
+                    const elements = document.querySelectorAll(target);
+                    
+                    elements.forEach(element => {
+                        element.classList.remove('show');
+                    });
+                    
+                    const icon = button.querySelector('i');
+                    if (icon) {
+                        icon.className = 'fas fa-chevron-right';
+                    }
+                }
+            });
+        }
+
+        // Configurar event listeners mejorados
+        setupEventListeners() {
+            // Listeners para preferencias
+            const preferenceElements = [
+                'autoSaveFilters', 'rememberCollapsed', 'autoRefresh', 'compactView'
+            ];
+
+            preferenceElements.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.addEventListener('change', (e) => {
+                        this.preferences[id] = e.target.checked;
+                        this.savePreferences();
+                        this.handlePreferenceChange(id, e.target.checked);
+                    });
+                }
+            });
+
+            // Guardar estado al cambiar filtros (con debounce)
+            let filterTimeout;
+            document.addEventListener('change', (e) => {
+                if (e.target.closest('#filtersForm')) {
+                    clearTimeout(filterTimeout);
+                    filterTimeout = setTimeout(() => {
+                        if (this.preferences.autoSaveFilters) {
+                            this.saveUserState();
+                        }
+                    }, 500);
+                }
+            });
+
+            // Guardar estado al colapsar/expandir proveedores
+            document.addEventListener('click', (e) => {
+                if (e.target.closest('.btn-toggle')) {
+                    setTimeout(() => {
+                        if (this.preferences.rememberCollapsed) {
+                            this.saveUserState();
+                        }
+                    }, 300);
+                }
+            });
+
+            // Guardar posición de scroll (con throttle)
+            let scrollTimeout;
+            let isScrolling = false;
+            window.addEventListener('scroll', () => {
+                if (!isScrolling) {
+                    isScrolling = true;
+                    clearTimeout(scrollTimeout);
+                    scrollTimeout = setTimeout(() => {
+                        this.saveUserState();
+                        isScrolling = false;
+                    }, 1000);
+                }
+            });
+
+            // Guardar estado antes de salir
+            window.addEventListener('beforeunload', () => {
+                this.saveUserState();
+            });
+
+            // Limpiar datos al cambiar de pestaña por mucho tiempo
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    // Usuario regresó, verificar si necesita actualizar
+                    const lastVisit = this.preferences.lastVisit || 0;
+                    const timeDiff = Date.now() - lastVisit;
+                    
+                    if (timeDiff > 30 * 60 * 1000) { // 30 minutos
+                        this.showStatusMessage('Datos actualizados por inactividad', 'info');
+                    }
+                }
+            });
+        }
+
+        // Manejar cambios de preferencias
+        handlePreferenceChange(preference, value) {
+            switch (preference) {
+                case 'autoRefresh':
+                    this.toggleAutoRefresh(value);
+                    break;
+                case 'compactView':
+                    this.toggleCompactView(value);
+                    break;
+                case 'autoSaveFilters':
+                    if (!value) {
+                        this.clearFiltersFromStorage();
+                    }
+                    break;
+                case 'rememberCollapsed':
+                    if (!value) {
+                        this.clearCollapsedFromStorage();
+                    }
+                    break;
+            }
+        }
+
+        // Aplicar preferencias al cargar
+        applyPreferences() {
+            const elements = {
+                autoSaveFilters: document.getElementById('autoSaveFilters'),
+                rememberCollapsed: document.getElementById('rememberCollapsed'),
+                autoRefresh: document.getElementById('autoRefresh'),
+                compactView: document.getElementById('compactView')
+            };
+
+            Object.keys(elements).forEach(key => {
+                if (elements[key]) {
+                    elements[key].checked = this.preferences[key];
+                }
+            });
+
+            if (this.preferences.autoRefresh) {
+                this.toggleAutoRefresh(true);
+            }
+
+            if (this.preferences.compactView) {
+                this.toggleCompactView(true);
+            }
+        }
+
+        // Toggle auto-refresh mejorado
+        toggleAutoRefresh(enable) {
+            if (this.autoRefreshInterval) {
+                clearInterval(this.autoRefreshInterval);
+                this.autoRefreshInterval = null;
+            }
+
+            if (enable) {
+                this.autoRefreshInterval = setInterval(() => {
+                    if (document.visibilityState === 'visible') {
+                        this.showStatusMessage('Actualizando página automáticamente...', 'info');
+                        setTimeout(() => {
+                            location.reload();
+                        }, 2000);
+                    }
+                }, 5 * 60 * 1000); // 5 minutos
+
+                this.showStatusMessage('Auto-actualización activada (cada 5 min)', 'success');
+            } else {
+                this.showStatusMessage('Auto-actualización desactivada', 'info');
+            }
+        }
+
+        // Toggle vista compacta
+        toggleCompactView(enable) {
+            document.body.classList.toggle('compact-view', enable);
+            this.showStatusMessage(
+                enable ? 'Vista compacta activada' : 'Vista normal activada', 
+                'info'
+            );
+        }
+
+        // Iniciar auto-guardado inteligente
+        startAutoSave() {
+            // Guardar cada 30 segundos si hay cambios
+            setInterval(() => {
+                if (this.hasUnsavedChanges()) {
+                    this.saveUserState();
+                }
+            }, 30000);
+        }
+
+        // Verificar si hay cambios sin guardar
+        hasUnsavedChanges() {
+            try {
+                const currentState = {
+                    filters: this.getCurrentFilters(),
+                    collapsedSuppliers: this.getCollapsedSuppliers(),
+                    scrollPosition: window.pageYOffset
+                };
+
+                const savedState = localStorage.getItem(`${this.storageKey}_state_${this.userId}`);
+                if (!savedState) return true;
+
+                const parsed = JSON.parse(savedState);
+                return JSON.stringify(currentState) !== JSON.stringify({
+                    filters: parsed.filters || {},
+                    collapsedSuppliers: parsed.collapsedSuppliers || [],
+                    scrollPosition: parsed.scrollPosition || 0
+                });
+            } catch (error) {
+                return true; // En caso de error, asumir que hay cambios
+            }
+        }
+
+        // Mostrar mensajes de estado mejorados
+        showStatusMessage(message, type = 'info', duration = 3000) {
+            const indicator = document.getElementById('statusIndicator');
+            const messageElement = document.getElementById('statusMessage');
+            
+            if (!indicator || !messageElement) return;
+
+            // Limpiar clases anteriores
+            indicator.className = 'status-indicator';
+            indicator.classList.add('show', type);
+            
+            messageElement.innerHTML = `
+                <i class="fas fa-${this.getIconForType(type)} me-2"></i>
+                ${message}
+            `;
+
+            setTimeout(() => {
+                indicator.classList.remove('show');
+            }, duration);
+        }
+
+        // Obtener icono según el tipo de mensaje
+        getIconForType(type) {
+            const icons = {
+                success: 'check-circle',
+                error: 'exclamation-triangle',
+                warning: 'exclamation-circle',
+                info: 'info-circle'
+            };
+            return icons[type] || 'info-circle';
+        }
+
+        // Limpiar datos antiguos para liberar espacio
+        cleanupOldData() {
+            try {
+                const keysToRemove = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.includes('invoiceSystem') && !key.includes(this.userId)) {
+                        keysToRemove.push(key);
+                    }
+                }
+                
+                keysToRemove.forEach(key => {
+                    localStorage.removeItem(key);
+                });
+
+                this.showStatusMessage('Datos antiguos limpiados', 'info');
+            } catch (error) {
+                console.error('Error limpiando datos antiguos:', error);
+            }
+        }
+
+        // Limpiar estado del usuario actual
+        clearUserState() {
+            try {
+                localStorage.removeItem(`${this.storageKey}_state_${this.userId}`);
+            } catch (error) {
+                console.error('Error limpiando estado del usuario:', error);
+            }
+        }
+
+        // Limpiar filtros del almacenamiento
+        clearFiltersFromStorage() {
+            try {
+                const saved = localStorage.getItem(`${this.storageKey}_state_${this.userId}`);
+                if (saved) {
+                    const state = JSON.parse(saved);
+                    delete state.filters;
+                    localStorage.setItem(`${this.storageKey}_state_${this.userId}`, JSON.stringify(state));
+                }
+            } catch (error) {
+                console.error('Error limpiando filtros:', error);
+            }
+        }
+
+        // Limpiar estado de colapsado del almacenamiento
+        clearCollapsedFromStorage() {
+            try {
+                const saved = localStorage.getItem(`${this.storageKey}_state_${this.userId}`);
+                if (saved) {
+                    const state = JSON.parse(saved);
+                    delete state.collapsedSuppliers;
+                    localStorage.setItem(`${this.storageKey}_state_${this.userId}`, JSON.stringify(state));
+                }
+            } catch (error) {
+                console.error('Error limpiando estado de colapsado:', error);
+            }
+        }
+
+        // Limpiar todos los datos
+        clearAllData() {
+            const confirmMessage = `¿Está seguro de que desea limpiar todos los datos guardados?
+
+Esto incluye:
+• Configuraciones personales
+• Filtros guardados
+• Estado de proveedores (expandido/colapsado)
+• Posición de scroll
+
+Esta acción no se puede deshacer.`;
+
+            if (confirm(confirmMessage)) {
+                try {
+                    // Limpiar datos específicos del usuario
+                    localStorage.removeItem(`${this.storageKey}_prefs_${this.userId}`);
+                    localStorage.removeItem(`${this.storageKey}_state_${this.userId}`);
+                    
+                    // Limpiar datos generales del sistema
+                    Object.keys(localStorage).forEach(key => {
+                        if (key.includes(this.storageKey)) {
+                            localStorage.removeItem(key);
+                        }
+                    });
+
+                    this.showStatusMessage('Todos los datos han sido limpiados', 'success', 5000);
+                    
+                    setTimeout(() => {
+                        location.reload();
+                    }, 2000);
+                    
+                } catch (error) {
+                    console.error('Error limpiando datos:', error);
+                    this.showStatusMessage('Error al limpiar los datos', 'error');
+                }
+            }
+        }
+    }
+
+    // Variables globales para búsqueda
+    let searchTimeout;
+    let currentSuggestionIndex = -1;
+
+    // Función para mostrar alerta personalizada mejorada
+    function showCustomConfirm(form, invoiceId) {
+        const overlay = document.createElement('div');
+        overlay.className = 'custom-alert-overlay';
+        
+        const alertBox = document.createElement('div');
+        alertBox.className = 'custom-alert';
+        
+        alertBox.innerHTML = `
+            <div class="custom-alert-header">
+                <i class="fas fa-question-circle me-2"></i> Confirmación Requerida
+            </div>
+            <div class="custom-alert-body">
+                <p>¿Está seguro de marcar esta factura como final?</p>
+                <div class="custom-alert-invoice">
+                    <i class="fas fa-file-invoice me-2"></i> Factura: ${invoiceId}
+                </div>
+                <p><strong>Importante:</strong> Una vez marcada como final, esta factura ya no aparecerá en la lista de facturas pendientes y no se podrá deshacer esta acción.</p>
+            </div>
+            <div class="custom-alert-footer">
+                <button type="button" class="custom-alert-btn btn-cancel" id="btnCancel">
+                    <i class="fas fa-times me-2"></i>Cancelar
+                </button>
+                <button type="button" class="custom-alert-btn btn-confirm" id="btnConfirm">
+                    <i class="fas fa-check me-2"></i>Confirmar
+                </button>
+            </div>
+        `;
+        
+        document.body.appendChild(overlay);
+        overlay.appendChild(alertBox);
+        
+        // Enfocar el botón de confirmar
+        setTimeout(() => {
+            document.getElementById('btnConfirm').focus();
+        }, 100);
+        
+        // Manejar eventos
+        document.getElementById('btnCancel').addEventListener('click', function() {
+            document.body.removeChild(overlay);
+        });
+        
+        document.getElementById('btnConfirm').addEventListener('click', function() {
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = 'mark_final';
+            hiddenInput.value = '1';
+            form.appendChild(hiddenInput);
+            
+            // Mostrar indicador de carga
+            const confirmBtn = document.getElementById('btnConfirm');
+            confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Procesando...';
+            confirmBtn.disabled = true;
+            
+            form.submit();
+        });
+        
+        // Cerrar con ESC
+        const escHandler = function(e) {
+            if (e.key === 'Escape' && document.body.contains(overlay)) {
+                document.body.removeChild(overlay);
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
+        
+        // Cerrar al hacer clic fuera
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) {
+                document.body.removeChild(overlay);
+            }
+        });
+    }
+
+    // Función para buscar proveedores mejorada
+    function searchSuppliers(query) {
+        if (query.length < 2) {
+            hideSuggestions();
+            return;
         }
         
-        document.addEventListener('DOMContentLoaded', function() {
-            const supplierInput = document.getElementById('filter_supplier');
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            fetch(`?action=search_suppliers&q=${encodeURIComponent(query)}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Error en la respuesta del servidor');
+                    }
+                    return response.json();
+                })
+                .then(suppliers => {
+                    showSuggestions(suppliers);
+                })
+                .catch(error => {
+                    console.error('Error al buscar proveedores:', error);
+                    hideSuggestions();
+                    window.storageManager?.showStatusMessage('Error al buscar proveedores', 'error');
+                });
+        }, 300);
+    }
+
+    // Mostrar sugerencias mejorado
+    function showSuggestions(suppliers) {
+        const suggestionsContainer = document.getElementById('supplierSuggestions');
+        if (!suggestionsContainer) return;
+        
+        suggestionsContainer.innerHTML = '';
+        currentSuggestionIndex = -1;
+        
+        if (!suppliers || suppliers.length === 0) {
+            suggestionsContainer.innerHTML = '<div class="no-results"><i class="fas fa-search me-2"></i>No se encontraron proveedores</div>';
+            suggestionsContainer.style.display = 'block';
+            return;
+        }
+        
+        suppliers.forEach((supplier, index) => {
+            const suggestionDiv = document.createElement('div');
+            suggestionDiv.className = 'supplier-suggestion';
+            suggestionDiv.innerHTML = `<i class="fas fa-building me-2"></i>${supplier}`;
+            suggestionDiv.addEventListener('click', () => selectSupplier(supplier));
+            suggestionsContainer.appendChild(suggestionDiv);
+        });
+        
+        suggestionsContainer.style.display = 'block';
+    }
+
+    // Ocultar sugerencias
+    function hideSuggestions() {
+        const container = document.getElementById('supplierSuggestions');
+        if (container) {
+            container.style.display = 'none';
+        }
+        currentSuggestionIndex = -1;
+    }
+
+    // Seleccionar proveedor
+    function selectSupplier(supplier) {
+        const input = document.getElementById('filter_supplier');
+        if (input) {
+            input.value = supplier;
+            hideSuggestions();
             
-            // Event listeners para búsqueda de proveedores
+            // Guardar automáticamente si está habilitado
+            if (window.storageManager?.preferences.autoSaveFilters) {
+                setTimeout(() => {
+                    window.storageManager.saveUserState();
+                }, 100);
+            }
+        }
+    }
+
+    // Navegación con teclado en sugerencias
+    function handleKeyNavigation(e) {
+        const suggestions = document.querySelectorAll('.supplier-suggestion');
+        
+        if (suggestions.length === 0) return;
+        
+        switch (e.key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                currentSuggestionIndex = Math.min(currentSuggestionIndex + 1, suggestions.length - 1);
+                updateActiveSuggestion(suggestions);
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                currentSuggestionIndex = Math.max(currentSuggestionIndex - 1, -1);
+                updateActiveSuggestion(suggestions);
+                break;
+            case 'Enter':
+                e.preventDefault();
+                if (currentSuggestionIndex >= 0) {
+                    const supplierText = suggestions[currentSuggestionIndex].textContent.replace(/^\s*\S+\s*/, ''); // Remover icono
+                    selectSupplier(supplierText);
+                }
+                break;
+            case 'Escape':
+                hideSuggestions();
+                break;
+        }
+    }
+
+    // Actualizar sugerencia activa
+    function updateActiveSuggestion(suggestions) {
+        suggestions.forEach((suggestion, index) => {
+            suggestion.classList.toggle('active', index === currentSuggestionIndex);
+        });
+    }
+
+    // Funciones globales
+    function toggleSettingsPanel() {
+        const panel = document.getElementById('settingsPanel');
+        if (panel) {
+            panel.classList.toggle('show');
+        }
+    }
+
+    function clearAllData() {
+        if (window.storageManager) {
+            window.storageManager.clearAllData();
+        }
+    }
+
+    function toggleTodayFilter() {
+        const checkbox = document.getElementById('todayOnlyFilter');
+        if (!checkbox) return;
+        
+        const currentUrl = new URL(window.location.href);
+        
+        if (checkbox.checked) {
+            currentUrl.searchParams.set('filter_today_only', '1');
+        } else {
+            currentUrl.searchParams.delete('filter_today_only');
+        }
+        
+        // Mantener otros filtros
+        const form = document.querySelector('#filtersForm');
+        if (form) {
+            const formData = new FormData(form);
+            
+            for (let [key, value] of formData.entries()) {
+                if (key !== 'filter_today_only' && value) {
+                    currentUrl.searchParams.set(key, value);
+                }
+            }
+        }
+        
+        // Mostrar indicador de carga
+        window.storageManager?.showStatusMessage('Aplicando filtro...', 'info');
+        
+        setTimeout(() => {
+            window.location.href = currentUrl.toString();
+        }, 500);
+    }
+
+    function generateExcel() {
+        const supplier = document.getElementById('filter_supplier').value;
+        const dateFrom = document.getElementById('filter_date_from').value;
+        const dateTo = document.getElementById('filter_date_to').value;
+        const todayOnly = document.getElementById('todayOnlyFilter').checked ? '1' : '';
+        
+        const params = new URLSearchParams({
+            action: 'generate_excel',
+            supplier: supplier,
+            date_from: dateFrom,
+            date_to: dateTo,
+            today_only: todayOnly
+        });
+        
+        // Crear enlace temporal para descarga
+        const link = document.createElement('a');
+        link.href = '?' + params.toString();
+        link.download = 'facturas_completadas.xlsx';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    // Inicialización cuando el DOM esté listo
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🚀 Iniciando sistema mejorado de facturas completadas');
+        
+        // Inicializar el sistema de storage mejorado
+        window.storageManager = new ImprovedInvoiceStorage();
+
+        // Configurar búsqueda de proveedores
+        const supplierInput = document.getElementById('filter_supplier');
+        if (supplierInput) {
             supplierInput.addEventListener('input', function(e) {
                 searchSuppliers(e.target.value);
             });
             
             supplierInput.addEventListener('keydown', handleKeyNavigation);
             
-            // Ocultar sugerencias al hacer clic fuera
-            document.addEventListener('click', function(e) {
-                if (!e.target.closest('.supplier-search-container')) {
-                    hideSuggestions();
+            // Limpiar sugerencias al perder el foco
+            supplierInput.addEventListener('blur', function() {
+                setTimeout(hideSuggestions, 200); // Delay para permitir clicks en sugerencias
+            });
+        }
+
+        // Ocultar sugerencias al hacer clic fuera
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.supplier-search-container')) {
+                hideSuggestions();
+            }
+        });
+
+        // Cerrar panel de configuración al hacer clic fuera
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.settings-panel') && !e.target.closest('.settings-toggle')) {
+                const panel = document.getElementById('settingsPanel');
+                if (panel) {
+                    panel.classList.remove('show');
                 }
-            });
-            
-            // Exportar facturas de hoy
-            document.getElementById('exportTodayBtn').addEventListener('click', function() {
-                exportTableToExcel('today', 'facturas_finales_hoy');
-            });
-            
-            // Exportar facturas anteriores
-            document.getElementById('exportPreviousBtn').addEventListener('click', function() {
-                exportTableToExcel('previous', 'facturas_finales_anteriores');
-            });
-            
-            // Exportar todas las facturas
-            document.getElementById('exportAllBtn').addEventListener('click', function() {
-                const allTables = document.querySelectorAll('.invoice-table');
-                if (allTables.length === 0) {
-                    alert('No hay datos para exportar');
-                    return;
-                }
-                
-                const wb = XLSX.utils.book_new();
-                
-                allTables.forEach((table, index) => {
-                    // Clone the table to remove the checkbox column before export
-                    const clonedTable = table.cloneNode(true);
-                    const headerCells = clonedTable.querySelectorAll('thead th');
-                    const bodyRows = clonedTable.querySelectorAll('tbody tr');
+            }
+        });
 
-                    // Remove the first header cell (checkbox column)
-                    if (headerCells.length > 0) {
-                        headerCells[0].remove();
-                    }
+        // Exportar a Excel mejorado con función específica
+        const exportBtn = document.getElementById('exportBtn');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', generateExcel);
+        }
 
-                    // Remove the first cell (checkbox) from each body row
-                    bodyRows.forEach(row => {
-                        const firstCell = row.querySelector('td');
-                        if (firstCell) {
-                            firstCell.remove();
-                        }
-                    });
-
-                    const ws = XLSX.utils.table_to_sheet(clonedTable);
-                    const sheetName = `Facturas_${index + 1}`;
-                    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-                });
-                
-                const fileName = `facturas_finales_completo_${new Date().toISOString().slice(0,10)}.xlsx`;
-                XLSX.writeFile(wb, fileName);
-            });
-            
-            // Loading state para filtros
-            document.getElementById('filtersForm').addEventListener('submit', function() {
+        // Loading state para filtros
+        const filtersForm = document.getElementById('filtersForm');
+        if (filtersForm) {
+            filtersForm.addEventListener('submit', function() {
                 const btn = document.getElementById('filterBtn');
-                btn.classList.add('loading');
-                btn.disabled = true;
+                if (btn) {
+                    btn.classList.add('loading');
+                    btn.disabled = true;
+                }
+                
+                window.storageManager?.showStatusMessage('Aplicando filtros...', 'info');
             });
-            
-            // Expandir todos los proveedores
-            document.getElementById('expandAllBtn').addEventListener('click', function() {
-                const toggleButtons = document.querySelectorAll('.btn-toggle');
+        }
+
+        // Controles globales para expandir/colapsar
+        const expandAllBtn = document.getElementById('expandAllBtn');
+        const collapseAllBtn = document.getElementById('collapseAllBtn');
+        const toggleButtons = document.querySelectorAll('.btn-toggle');
+
+        if (expandAllBtn) {
+            expandAllBtn.addEventListener('click', function() {
                 toggleButtons.forEach(button => {
                     const target = button.getAttribute('data-bs-target');
-                    const collapse = new bootstrap.Collapse(document.querySelector(target), {
-                        toggle: false
+                    const elements = document.querySelectorAll(target);
+                    
+                    elements.forEach(element => {
+                        element.classList.add('show');
                     });
-                    collapse.show();
-                    button.querySelector('i').className = 'fas fa-chevron-down';
-                });
-            });
-            
-            // Colapsar todos los proveedores
-            document.getElementById('collapseAllBtn').addEventListener('click', function() {
-                const toggleButtons = document.querySelectorAll('.btn-toggle');
-                toggleButtons.forEach(button => {
-                    const target = button.getAttribute('data-bs-target');
-                    const collapse = new bootstrap.Collapse(document.querySelector(target), {
-                        toggle: false
-                    });
-                    collapse.hide();
-                    button.querySelector('i').className = 'fas fa-chevron-right';
-                });
-            });
-            
-            // Expandir/colapsar por sección
-            document.querySelectorAll('.expand-section-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const section = this.getAttribute('data-section');
-                    const toggleButtons = document.querySelectorAll(`#${section}Container .btn-toggle`);
-                    toggleButtons.forEach(button => {
-                        const target = button.getAttribute('data-bs-target');
-                        const collapse = new bootstrap.Collapse(document.querySelector(target), {
-                            toggle: false
-                        });
-                        collapse.show();
-                        button.querySelector('i').className = 'fas fa-chevron-down';
-                    });
-                });
-            });
-            
-            document.querySelectorAll('.collapse-section-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const section = this.getAttribute('data-section');
-                    const toggleButtons = document.querySelectorAll(`#${section}Container .btn-toggle`);
-                    toggleButtons.forEach(button => {
-                        const target = button.getAttribute('data-bs-target');
-                        const collapse = new bootstrap.Collapse(document.querySelector(target), {
-                            toggle: false
-                        });
-                        collapse.hide();
-                        button.querySelector('i').className = 'fas fa-chevron-right';
-                    });
-                });
-            });
-            
-            // Cambiar icono cuando se colapsa/expande individualmente
-            document.querySelectorAll('.btn-toggle').forEach(button => {
-                button.addEventListener('click', function() {
-                    const icon = this.querySelector('i');
-                    if (icon.classList.contains('fa-chevron-down')) {
-                        icon.className = 'fas fa-chevron-right';
-                    } else {
+                    
+                    const icon = button.querySelector('i');
+                    if (icon) {
                         icon.className = 'fas fa-chevron-down';
                     }
                 });
+                
+                window.storageManager?.showStatusMessage('Todos los proveedores expandidos', 'info');
+                setTimeout(() => {
+                    window.storageManager?.saveUserState();
+                }, 500);
             });
-            
-            // Auto-dismiss alerts
-            setTimeout(function() {
-                const alerts = document.querySelectorAll('.alert-dismissible');
-                alerts.forEach(function(alert) {
+        }
+
+        if (collapseAllBtn) {
+            collapseAllBtn.addEventListener('click', function() {
+                toggleButtons.forEach(button => {
+                    const target = button.getAttribute('data-bs-target');
+                    const elements = document.querySelectorAll(target);
+                    
+                    elements.forEach(element => {
+                        element.classList.remove('show');
+                    });
+                    
+                    const icon = button.querySelector('i');
+                    if (icon) {
+                        icon.className = 'fas fa-chevron-right';
+                    }
+                });
+                
+                window.storageManager?.showStatusMessage('Todos los proveedores colapsados', 'info');
+                setTimeout(() => {
+                    window.storageManager?.saveUserState();
+                }, 500);
+            });
+        }
+
+        // Cambiar icono cuando se colapsa/expande individualmente
+        toggleButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                setTimeout(() => {
+                    const icon = this.querySelector('i');
+                    const target = this.getAttribute('data-bs-target');
+                    const element = document.querySelector(target);
+                    
+                    if (element && icon) {
+                        if (element.classList.contains('show')) {
+                            icon.className = 'fas fa-chevron-down';
+                        } else {
+                            icon.className = 'fas fa-chevron-right';
+                        }
+                    }
+                }, 100);
+            });
+        });
+
+        // Auto-dismiss alerts mejorado
+        setTimeout(function() {
+            const alerts = document.querySelectorAll('.alert-dismissible');
+            alerts.forEach(function(alert) {
+                try {
                     const bsAlert = new bootstrap.Alert(alert);
                     bsAlert.close();
-                });
-            }, 5000);
-
-            // --- Lógica de selección de facturas ---
-            // Añadir listeners a todos los checkboxes de facturas
-            document.querySelectorAll('.invoice-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', handleInvoiceCheckboxChange);
+                } catch (error) {
+                    // Fallback si bootstrap no está disponible
+                    alert.style.opacity = '0';
+                    setTimeout(() => {
+                        if (alert.parentNode) {
+                            alert.parentNode.removeChild(alert);
+                        }
+                    }, 300);
+                }
             });
+        }, 5000);
 
-            // Añadir listeners a todos los checkboxes de "seleccionar todo por proveedor"
-            document.querySelectorAll('.select-all-supplier-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', handleSelectAllSupplierCheckboxChange);
-            });
-
-            // Inicializar el estado de los checkboxes "seleccionar todo" por proveedor
-            // y el total seleccionado al cargar la página
-            document.querySelectorAll('.select-all-supplier-checkbox').forEach(checkbox => {
-                const supplierName = checkbox.dataset.supplierName;
-                const sectionId = checkbox.dataset.sectionId;
-                updateSelectAllCheckbox(supplierName, sectionId);
-            });
-            updateTotalDisplay(); // Ensure the total display is correct on load
-
-            console.log("Sistema de facturas finales divididas cargado correctamente con selección de total.");
-        });
+        console.log('✅ Sistema mejorado de facturas completadas cargado correctamente');
+    });
     </script>
 </body>
 </html>
