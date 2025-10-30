@@ -1,203 +1,27 @@
 <?php
-/**
- * Sistema de Gestión de Facturas - Página Principal
- * 
- * Este módulo gestiona la visualización y aprobación de facturas pendientes.
- * Implementa controles de seguridad y validación de permisos de usuario.
- * 
- * @author Sistema de Pagos
- * @version 2.0
- */
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
-// Inicialización de sesión y configuración
 session_start();
-
-// Configuración de seguridad
-header('X-Frame-Options: DENY');
-header('X-Content-Type-Options: nosniff');
-header('X-XSS-Protection: 1; mode=block');
-
 require_once 'config/database.php';
 require_once 'includes/functions.php';
 
-// ============================================================================
-// AUTENTICACIÓN Y AUTORIZACIÓN
-// ============================================================================
-
-/**
- * Verifica que el usuario esté autenticado
- */
+// Validar sesión
 if (!isset($_SESSION['user_id'])) {
-    $_SESSION['redirect_after_login'] = $_SERVER['REQUEST_URI'];
     header("Location: login.php");
     exit();
 }
 
-// Obtener información del usuario autenticado
+// Obtener datos del usuario
 $user_id = $_SESSION['user_id'];
 $user = getUserById($user_id);
 $role = $user['role'] ?? 'user';
+$user_name = $user['name'] ?? 'Usuario';
 
-// Generar token CSRF si no existe
-if (!isset($_SESSION['csrf_token'])) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-}
 
-// ============================================================================
-// PROCESAMIENTO DE FORMULARIOS
-// ============================================================================
+// Incluir sidebar
 
-/**
- * Procesa la solicitud de marcado de factura como OK
- */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_as_ok'])) {
-    
-    // Validar token CSRF
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        $_SESSION['error_message'] = "Error de seguridad: Token CSRF inválido";
-        header("Location: " . $_SERVER['PHP_SELF']);
-        exit();
-    }
-    
-    $invoice_id = filter_input(INPUT_POST, 'invoice_id', FILTER_SANITIZE_STRING);
-    
-    if (empty($invoice_id)) {
-        $_SESSION['error_message'] = "ID de factura inválido";
-        header("Location: " . $_SERVER['PHP_SELF']);
-        exit();
-    }
-    
-    try {
-        // Verificar que el usuario haya visualizado los detalles de la factura
-        if (!hasUserViewedInvoice($invoice_id, $user_id)) {
-            throw new Exception("Debe revisar los detalles de la factura antes de aprobarla");
-        }
-        
-        // Marcar factura como aprobada
-        $result = markInvoiceAsOk($invoice_id, $user_id);
-        
-        if ($result) {
-            logAuditAction($user_id, 'INVOICE_APPROVED', $invoice_id);
-            $_SESSION['success_message'] = "Factura #$invoice_id aprobada correctamente";
-        } else {
-            throw new Exception("No se pudo aprobar la factura #$invoice_id");
-        }
-        
-    } catch (Exception $e) {
-        $_SESSION['error_message'] = $e->getMessage();
-        logAuditAction($user_id, 'INVOICE_APPROVAL_FAILED', $invoice_id, $e->getMessage());
-    }
-    
-    // Redireccionar para evitar reenvío del formulario
-    header("Location: " . $_SERVER['PHP_SELF']);
-    exit();
-}
 
-// ============================================================================
-// FUNCIONES DE NEGOCIO
-// ============================================================================
-
-/**
- * Marca una factura como aprobada (OK)
- * 
- * @param string $invoice_id ID de la factura
- * @param int $user_id ID del usuario que aprueba
- * @return bool True si se actualizó correctamente
- * @throws Exception Si hay error en la base de datos
- */
-function markInvoiceAsOk($invoice_id, $user_id) {
-    $conn = getDbConnection();
-    
-    $sql = "UPDATE invoices 
-            SET ok = 'ok', 
-                approved_by = ?, 
-                approved_at = GETDATE() 
-            WHERE docnum_interno_sap = ?";
-    
-    $params = array($user_id, $invoice_id);
-    
-    try {
-        if ($conn instanceof PDO) {
-            $stmt = $conn->prepare($sql);
-            $stmt->execute($params);
-            return ($stmt->rowCount() > 0);
-        } else {
-            // SQL Server nativo
-            $stmt = sqlsrv_query($conn, $sql, $params);
-            
-            if ($stmt === false) {
-                $errors = sqlsrv_errors();
-                throw new Exception("Error en base de datos: " . print_r($errors, true));
-            }
-            
-            $affected = sqlsrv_rows_affected($stmt);
-            sqlsrv_free_stmt($stmt);
-            
-            return ($affected > 0);
-        }
-    } catch (Exception $e) {
-        error_log("Error al aprobar factura $invoice_id: " . $e->getMessage());
-        throw $e;
-    }
-}
-
-/**
- * Registra acciones de auditoría en el sistema
- * 
- * @param int $user_id ID del usuario
- * @param string $action Acción realizada
- * @param string $invoice_id ID de factura (opcional)
- * @param string $details Detalles adicionales (opcional)
- */
-function logAuditAction($user_id, $action, $invoice_id = null, $details = null) {
-    $conn = getDbConnection();
-    
-    $sql = "INSERT INTO audit_log (user_id, action, invoice_id, details, created_at) 
-            VALUES (?, ?, ?, ?, GETDATE())";
-    
-    $params = array($user_id, $action, $invoice_id, $details);
-    
-    try {
-        if ($conn instanceof PDO) {
-            $stmt = $conn->prepare($sql);
-            $stmt->execute($params);
-        } else {
-            sqlsrv_query($conn, $sql, $params);
-        }
-    } catch (Exception $e) {
-        error_log("Error al registrar auditoría: " . $e->getMessage());
-    }
-}
-
-// ============================================================================
-// OBTENCIÓN DE DATOS
-// ============================================================================
-
-// Filtros de búsqueda con sanitización
-$date_filter = filter_input(INPUT_GET, 'date', FILTER_SANITIZE_STRING) ?? '';
-$status_filter = filter_input(INPUT_GET, 'status', FILTER_SANITIZE_STRING) ?? '';
-$supplier_filter = filter_input(INPUT_GET, 'supplier', FILTER_SANITIZE_STRING) ?? '';
-$invoice_id_filter = filter_input(INPUT_GET, 'invoice_id', FILTER_SANITIZE_STRING) ?? '';
-$overdue_days_filter = filter_input(INPUT_GET, 'overdue_days', FILTER_VALIDATE_INT) ?? '';
-
-// Obtener facturas según estado
-$pending_invoices = getFilteredInvoices(
-    $date_filter, 
-    $status_filter, 
-    $supplier_filter, 
-    $invoice_id_filter, 
-    $overdue_days_filter, 
-    false
-);
-
-$ok_invoices = getFilteredInvoices(
-    $date_filter, 
-    $status_filter, 
-    $supplier_filter, 
-    $invoice_id_filter, 
-    $overdue_days_filter, 
-    true
-);
 
 ?>
 <!DOCTYPE html>
@@ -210,12 +34,14 @@ $ok_invoices = getFilteredInvoices(
     
     <title>Sistema de Gestión de Pagos - Panel Principal</title>
     
-     Bootstrap CSS 
+ 
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     
-     Font Awesome 
+   
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/styles.css">
     <style>
         /* ================================================================
            VARIABLES CSS - SISTEMA DE DISEÑO CORPORATIVO
@@ -606,18 +432,10 @@ $ok_invoices = getFilteredInvoices(
     </style>
 </head>
 <body>
-    <?php 
-    // Incluir sidebar si existe
-    if (file_exists('includes/sidebar.php')) {
-        try {
-            include 'includes/sidebar.php';
-        } catch (Exception $e) {
-            error_log("Error cargando sidebar: " . $e->getMessage());
-        }
-    }
-    ?>
-    
+<?php include 'includes/header.php'; ?>
+
     <main class="main-container" role="main">
+    <?php include 'includes/sidebar.php'; ?>
         <div class="welcome-card">
                          <header class="card-header-custom">
                 <h1>Sistema de Gestión de Pagos</h1>
@@ -726,6 +544,10 @@ $ok_invoices = getFilteredInvoices(
                 console.log('%cVersión 2.0 - Acceso autorizado', 'color: #00875A; font-size: 12px;');
             }
         });
+        <?php include 'includes/footer.php'; ?>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     </script>
 </body>
 </html>
