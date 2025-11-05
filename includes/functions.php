@@ -695,4 +695,3 @@ if (!function_exists('getDbConnection')) {
         }
     }
 }
-?>

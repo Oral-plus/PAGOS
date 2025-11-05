@@ -1498,7 +1498,8 @@ function formatApprovalTime($timestamp) {
                                                 $isInRange = false;
                                                 if (isset($invoice['approval_time'])) {
                                                     $approvalDate = formatApprovalTime($invoice['approval_time']);
-                                                    $approvalDateOnly = date('Y-m-d', strtotime($invoice['approval_time']));
+                                                     $approvalDateOnly = $invoice['approval_time'];
+
                                                     $isInRange = ($approvalDateOnly >= $filter_approved_date_from && $approvalDateOnly <= $filter_approved_date_to);
                                                 }
                                                 

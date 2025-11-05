@@ -3,6 +3,11 @@ session_start();
 require_once 'config/database.php';
 require_once 'includes/functions.php';
 
+// Cargar autoload de Composer si existe
+if (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+}
+
 // Verificar sesión
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -19,7 +24,7 @@ $filter_date_from = $_GET['filter_date_from'] ?? '';
 $filter_date_to = $_GET['filter_date_to'] ?? '';
 $filter_status = $_GET['filter_status'] ?? '';
 
-// === NUEVO: Generar Egreso ===
+// === GENERAR EGRESO ===
 if (isset($_POST['action']) && $_POST['action'] === 'generar_egreso') {
     $proveedor = $_POST['proveedor'] ?? '';
     $fecha_inicio = $_POST['fecha_inicio'] ?? '';
@@ -40,7 +45,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'generar_egreso') {
     $fecha_documento = date('d/m/Y');
     $fecha_vencimiento = date('d/m/Y', strtotime('+30 days'));
 
-    // Renderizar Egreso
     ob_start();
     include 'templates/egreso_template.php';
     $html = ob_get_clean();
@@ -48,7 +52,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'generar_egreso') {
     exit();
 }
 
-// === Función optimizada para obtener solo proveedores (rápido) ===
+// === PROVEEDORES Y ESTADOS (rápido) ===
 function getAllSuppliers() {
     $conn = getDbConnection();
     $sql = "SELECT DISTINCT i.[nombre] 
@@ -92,23 +96,30 @@ function getAllPaidStatuses() {
     }
 }
 
-// === Solo cargar facturas al exportar o generar egreso ===
+// === EXPORTAR EXCEL (con validación de fechas) ===
 if (isset($_GET['export']) && $_GET['export'] === 'excel') {
+    if (empty($filter_date_from) || empty($filter_date_to)) {
+        echo "<script>alert('Debes seleccionar un rango de fechas para exportar.'); window.history.back();</script>";
+        exit();
+    }
+
     $invoices = getGroupedPaidInvoices($filter_supplier, $filter_date_from, $filter_date_to, $filter_status);
-    exportToExcel($invoices);
+
+    if (class_exists('\PhpOffice\PhpSpreadsheet\Spreadsheet')) {
+        exportToXlsx($invoices);
+    } else {
+        exportToExcelCSV($invoices);
+    }
     exit();
 }
 
-// Solo obtener proveedores para filtros (rápido)
+// Cargar solo filtros
 $suppliers = getAllSuppliers();
 $statuses = getAllPaidStatuses();
-
-// NO cargar facturas en la vista principal
 $grouped_invoices = [];
 $total_suppliers = 0;
 $total_invoices = 0;
 $total_paid = 0;
-
 ?>
 
 <!DOCTYPE html>
@@ -120,21 +131,12 @@ $total_paid = 0;
     <title>Facturas Pagadas - Sistema de Facturación</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/styles.css">
+    <link rel spinner.css" href="assets/css/styles.css">
     <style>
         .main-header { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 15px 20px; margin-bottom: 20px; border-radius: 8px; }
-        .filters-card, .search-container { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; padding: 15px; }
-        .search-input { border: 2px solid #e9ecef; border-radius: 25px; padding: 10px 20px 10px 45px; font-size: 16px; }
-        .search-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #6c757d; }
-        .supplier-card { border: 2px solid #e3f2fd; border-radius: 8px; margin-bottom: 15px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .supplier-header { background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 15px 20px; cursor: pointer; }
-        .supplier-header:hover { background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); }
-        .expand-icon { transition: transform 0.3s ease; color: #28a745; }
-        .expand-icon.rotated { transform: rotate(90deg); }
-        .stat-pill { padding: 4px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 600; }
-        .invoice-table th { background: #f8f9fa; font-size: 0.85em; padding: 12px 6px; text-align: center; }
-        .invoice-table td { padding: 10px 6px; font-size: 0.9em; }
-        .btn-action { padding: 4px 8px; font-size: 0.8em; border-radius: 4px; }
+        .filters-card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; padding: 15px; }
+        .alert-info { background: #e3f2fd; border: 1px solid #bbdefb; color: #1976d2; }
+        .btn-export { min-width: 150px; }
     </style>
 </head>
 <body>
@@ -150,8 +152,9 @@ $total_paid = 0;
                             <p class="mb-0 opacity-85">Filtra y exporta facturas pagadas por proveedor</p>
                         </div>
                         <div>
-                            <button type="button" class="btn btn-success me-2" id="exportBtn">
-                                <i class="fas fa-file-excel me-1"></i> Exportar Excel
+                            <button type="button" class="btn btn-success me-2 btn-export" id="exportBtn" onclick="startExport()">
+                                <span id="exportText"><i class="fas fa-file-excel me-1"></i> Exportar Excel</span>
+                                <span id="exportLoading" class="d-none"><i class="fas fa-spinner fa-spin me-1"></i> Generando...</span>
                             </button>
                             <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#egresoModal">
                                 <i class="fas fa-file-invoice-dollar me-1"></i> Generar Egreso
@@ -161,7 +164,7 @@ $total_paid = 0;
                 </div>
 
                 <!-- Filtros -->
-                <form method="GET" class="filters-card">
+                <form method="GET" class="filters-card" id="filterForm">
                     <div class="row g-3">
                         <div class="col-md-4">
                             <label class="form-label">Proveedor</label>
@@ -186,12 +189,12 @@ $total_paid = 0;
                             </select>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label">Desde</label>
-                            <input type="date" class="form-control" name="filter_date_from" value="<?= htmlspecialchars($filter_date_from) ?>">
+                            <label class="form-label">Desde *</label>
+                            <input type="date" class="form-control" name="filter_date_from" value="<?= htmlspecialchars($filter_date_from) ?>" required>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label">Hasta</label>
-                            <input type="date" class="form-control" name="filter_date_to" value="<?= htmlspecialchars($filter_date_to) ?>">
+                            <label class="form-label">Hasta *</label>
+                            <input type="date" class="form-control" name="filter_date_to" value="<?= htmlspecialchars($filter_date_to) ?>" required>
                         </div>
                         <div class="col-md-2 d-flex align-items-end">
                             <button type="submit" class="btn btn-primary w-100">
@@ -201,16 +204,16 @@ $total_paid = 0;
                     </div>
                 </form>
 
-                <!-- Info: No se cargan facturas hasta exportar -->
-                <div class="alert alert-info">
+                <div class="alert alert-info mt-3">
                     <i class="fas fa-info-circle me-2"></i>
                     <strong>Optimizado:</strong> Las facturas solo se cargan al exportar o generar egreso.
+                    <br><small><strong>Importante:</strong> Debes seleccionar un rango de fechas para exportar.</small>
                 </div>
             </main>
         </div>
     </div>
 
-    <!-- Modal para Generar Egreso -->
+    <!-- Modal Egreso -->
     <div class="modal fade" id="egresoModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -256,19 +259,34 @@ $total_paid = 0;
 
     <?php include 'includes/footer.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script>
-        document.getElementById('exportBtn').addEventListener('click', function() {
-            const params = new URLSearchParams(new FormData(document.querySelector('form')));
+        function startExport() {
+            const from = document.querySelector('[name="filter_date_from"]').value;
+            const to = document.querySelector('[name="filter_date_to"]').value;
+            if (!from || !to) {
+                alert('Por favor selecciona un rango de fechas para exportar.');
+                return;
+            }
+
+            const btn = document.getElementById('exportBtn');
+            const text = document.getElementById('exportText');
+            const loading = document.getElementById('exportLoading');
+
+            text.classList.add('d-none');
+            loading.classList.remove('d-none');
+            btn.disabled = true;
+
+            const params = new URLSearchParams(new FormData(document.getElementById('filterForm')));
             params.append('export', 'excel');
             window.location.href = '?' + params.toString();
-        });
+        }
     </script>
 </body>
 </html>
 
 <?php
-// === Función para exportar Excel (solo se llama al exportar) ===
+// === FUNCIONES DE EXPORTACIÓN ===
+
 function getGroupedPaidInvoices($supplier = '', $date_from = '', $date_to = '', $status = '') {
     $conn = getDbConnection();
     $sql = "WITH Ranked AS (
@@ -313,51 +331,131 @@ function getGroupedPaidInvoices($supplier = '', $date_from = '', $date_to = '', 
     foreach ($rows as $r) {
         $s = $r['proveedor_nombre'];
         if (!isset($grouped[$s])) {
-            $grouped[$s] = ['invoices' => [], 'total_paid' => 0, 'count' => 0, 'completely_paid' => 0, 'partially_paid' => 0];
+            $grouped[$s] = ['invoices' => [], 'total_paid' => 0, 'count' => 0];
         }
         $grouped[$s]['invoices'][] = $r;
         $grouped[$s]['total_paid'] += floatval($r['ValorPagado']);
         $grouped[$s]['count']++;
-        if (floatval($r['ValorPagado']) >= floatval($r['Valor Total'])) {
-            $grouped[$s]['completely_paid']++;
-        } else {
-            $grouped[$s]['partially_paid']++;
-        }
     }
     return $grouped;
 }
 
-function exportToExcel($grouped) {
-    $data = [['FACTURAS PAGADAS'], ['Fecha:', date('d/m/Y H:i')]];
-    $totalFacturas = 0;
-    $data[] = ['Total de facturas:', 0]; // Se actualizará
-    $data[] = [];
-    $data[] = ['Proveedor', 'N° SAP', 'N° Factura', 'Fecha Factura', 'Fecha Pago', 'Valor Total', 'Valor Pagado', 'Estado'];
+function exportToXlsx($grouped) {
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
 
-    foreach ($grouped as $s => $d) {
-        foreach ($d['invoices'] as $i) {
-            $data[] = [
-                $s,
-                $i['docnum_interno_sap'] ?? $i['Factura'],
+    $sheet->setCellValue('A1', 'FACTURAS PAGADAS');
+    $sheet->setCellValue('A2', 'Fecha de generación: ' . date('d/m/Y H:i'));
+
+    $headers = ['Proveedor', 'N° SAP', 'N° Factura', 'Fecha Factura', 'Fecha Pago', 'Valor Total', 'Valor Pagado', 'Estado'];
+    $rowIndex = 4;
+    $col = 'A';
+    foreach ($headers as $h) {
+        $sheet->setCellValue($col++ . $rowIndex, $h);
+    }
+    $rowIndex++;
+
+    $filename = 'Facturas_Pagadas_' . date('Ymd_His') . '.xlsx';
+    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: max-age=0');
+    header('Pragma: public');
+
+    if (ob_get_level()) ob_end_clean();
+    flush();
+
+    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+    $writer->setPreCalculateFormulas(false);
+
+    $totalFacturas = 0;
+    $totalPagado = 0;
+    $counter = 0;
+
+    foreach ($grouped as $proveedor => $data) {
+        foreach ($data['invoices'] as $i) {
+            $col = 'A';
+            $sheet->setCellValue($col++ . $rowIndex, $proveedor);
+            $sheet->setCellValue($col++ . $rowIndex, $i['docnum_interno_sap'] ?? $i['numero_factura_proveedor'] ?? $i['Factura']);
+            $sheet->setCellValue($col++ . $rowIndex, $i['numero_factura_proveedor'] ?? $i['Factura']);
+            $sheet->setCellValue($col++ . $rowIndex, formatDate($i['Fecha Factura']));
+            $sheet->setCellValue($col++ . $rowIndex, formatDate($i['Fecha de Pago']));
+
+            $valorTotal = floatval($i['Valor Total'] ?? 0);
+            $valorPagado = floatval($i['Valor Pagado'] ?? 0);
+
+            $sheet->setCellValue($col . $rowIndex, $valorTotal);
+            $sheet->getStyle($col++ . $rowIndex)->getNumberFormat()->setFormatCode('#,##0');
+            $sheet->setCellValue($col . $rowIndex, $valorPagado);
+            $sheet->getStyle($col++ . $rowIndex)->getNumberFormat()->setFormatCode('#,##0');
+            $sheet->setCellValue($col . $rowIndex, $i['Estado'] ?? '');
+
+            $rowIndex++;
+            $totalFacturas++;
+            $totalPagado += $valorPagado;
+            $counter++;
+
+            if ($counter % 100 === 0) {
+                $writer->save('php://output');
+                flush();
+                if (ob_get_level()) ob_clean();
+            }
+        }
+    }
+
+    $sheet->setCellValue('A' . $rowIndex, 'Total de facturas');
+    $sheet->setCellValue('B' . $rowIndex, $totalFacturas);
+    $rowIndex++;
+    $sheet->setCellValue('A' . $rowIndex, 'Total pagado');
+    $sheet->setCellValue('B' . $rowIndex, $totalPagado);
+    $sheet->getStyle('B' . $rowIndex)->getNumberFormat()->setFormatCode('#,##0');
+
+    $writer->save('php://output');
+    exit();
+}
+
+function exportToExcelCSV($grouped) {
+    $filename = 'Facturas_Pagadas_' . date('Ymd_His') . '.csv';
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    $out = fopen('php://output', 'w');
+    fwrite($out, "\xEF\xBB\xBF");
+    fputcsv($out, ['FACTURAS PAGADAS'], ';');
+    fputcsv($out, ['Fecha de generación', date('d/m/Y H:i')], ';');
+    fputcsv($out, []);
+    fputcsv($out, ['Proveedor', 'N° SAP', 'N° Factura', 'Fecha Factura', 'Fecha Pago', 'Valor Total', 'Valor Pagado', 'Estado'], ';');
+
+    $totalFacturas = 0;
+    $totalPagado = 0;
+
+    foreach ($grouped as $proveedor => $data) {
+        foreach ($data['invoices'] as $i) {
+            $row = [
+                $proveedor,
+                $i['docnum_interno_sap'] ?? $i['numero_factura_proveedor'] ?? $i['Factura'],
                 $i['numero_factura_proveedor'] ?? $i['Factura'],
                 formatDate($i['Fecha Factura']),
                 formatDate($i['Fecha de Pago']),
-                number_format($i['Valor Total'], 0, ',', '.'),
-                number_format($i['Valor Pagado'], 0, ',', '.'),
-                $i['Estado']
+                number_format(floatval($i['Valor Total'] ?? 0), 0, ',', '.'),
+                number_format(floatval($i['Valor Pagado'] ?? 0), 0, ',', '.'),
+                $i['Estado'] ?? ''
             ];
+            fputcsv($out, $row, ';');
             $totalFacturas++;
+            $totalPagado += floatval($i['Valor Pagado'] ?? 0);
         }
     }
-    $data[2] = ['Total de facturas:', $totalFacturas];
 
-    $ws = XLSX.utils.aoa_to_sheet($data);
-    $wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet($wb, $ws, "Facturas");
-    XLSX.writeFile($wb, "Facturas_Pagadas_" . date('Ymd_His') . ".xlsx");
+    fputcsv($out, []);
+    fputcsv($out, ['Total de facturas', $totalFacturas], ';');
+    fputcsv($out, ['Total pagado', number_format($totalPagado, 0, ',', '.')], ';');
+
+    fclose($out);
+    exit();
 }
 
-// === Función para Egreso (usada en modal) ===
 function getFacturasEgreso($proveedor, $inicio, $fin) {
     $conn = getDbConnection();
     $sql = "WITH Ranked AS (
@@ -384,14 +482,5 @@ function getFacturasEgreso($proveedor, $inicio, $fin) {
         while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) $rows[] = $row;
         return $rows;
     }
-}
-
-// === Formatear fecha ===
-function formatDate($date) {
-    if (!$date) return 'N/A';
-    if (is_object($date) && $date instanceof DateTime) {
-        return $date->format('d/m/Y');
-    }
-    return date('d/m/Y', is_numeric($date) ? $date : strtotime($date));
 }
 ?>
