@@ -33,8 +33,6 @@ $filter_status = $_GET['filter_status'] ?? '';
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/styles.css">
     <style>
-    
-        
         .export-container {
             max-width: 900px;
             margin: 50px auto;
@@ -61,7 +59,8 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .export-header {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            /* Cambiar gradiente de verde a azul profesional */
+            background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
             color: white;
             padding: 40px 30px;
             text-align: center;
@@ -71,11 +70,13 @@ $filter_status = $_GET['filter_status'] ?? '';
             font-size: 2.5rem;
             font-weight: 700;
             margin-bottom: 10px;
+            /* Agregar sombra de texto para mayor definición */
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
         }
         
         .export-header p {
             font-size: 1.1rem;
-            opacity: 0.9;
+            opacity: 0.95;
             margin: 0;
         }
         
@@ -84,19 +85,21 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .filters-section {
-            background: #f8f9fa;
+            /* Cambiar fondo a tono azul claro para coherencia */
+            background: #f0f4f8;
+            border-left: 4px solid #1e40af;
             border-radius: 15px;
             padding: 25px;
             margin-bottom: 30px;
         }
         
         .filters-section h5 {
-            color: #2c3e50;
+            /* Cambiar color del texto a azul */
+            color: #1e40af;
             margin-bottom: 20px;
             font-weight: 600;
         }
         
-        /* Estilos para el buscador de proveedores en tiempo real */
         .search-container {
             position: relative;
         }
@@ -112,8 +115,9 @@ $filter_status = $_GET['filter_status'] ?? '';
         
         .search-input:focus {
             outline: none;
-            border-color: #28a745;
-            box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.1);
+            /* Cambiar color de foco a azul */
+            border-color: #1e40af;
+            box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.1);
         }
         
         .search-icon {
@@ -130,7 +134,8 @@ $filter_status = $_GET['filter_status'] ?? '';
             left: 0;
             right: 0;
             background: white;
-            border: 2px solid #28a745;
+            /* Cambiar borde a azul */
+            border: 2px solid #1e40af;
             border-top: none;
             border-radius: 0 0 10px 10px;
             max-height: 300px;
@@ -149,6 +154,8 @@ $filter_status = $_GET['filter_status'] ?? '';
             cursor: pointer;
             transition: all 0.2s ease;
             border-bottom: 1px solid #f0f0f0;
+            /* Cambiar color del texto a azul para coherencia */
+            color: #1f2937;
         }
         
         .search-result-item:last-child {
@@ -156,12 +163,17 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .search-result-item:hover {
-            background: #f8f9fa;
+            /* Cambiar fondo hover a azul claro */
+            background: #eff6ff;
             padding-left: 20px;
+            color: #1e40af;
+            font-weight: 500;
         }
         
         .search-result-item.selected {
-            background: #e8f5e9;
+            /* Cambiar fondo seleccionado a azul */
+            background: #dbeafe;
+            color: #1e40af;
             font-weight: 600;
         }
         
@@ -173,20 +185,21 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .selected-supplier-badge {
+            /* Cambiar badge a azul profesional */
             display: inline-block;
-            background: #28a745;
+            background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
             color: white;
             padding: 8px 15px;
             border-radius: 20px;
             margin-top: 10px;
             font-size: 0.9rem;
+            box-shadow: 0 4px 6px rgba(30, 64, 175, 0.2);
         }
         
         .selected-supplier-badge i {
             margin-left: 8px;
             cursor: pointer;
         }
-        /* </CHANGE> */
         
         .export-button-container {
             text-align: center;
@@ -197,22 +210,22 @@ $filter_status = $_GET['filter_status'] ?? '';
             flex-wrap: wrap;
         }
         
+        /* Botones de exportación con estilo azul profesional */
         .btn-export-main {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
             border: none;
             color: white;
             font-size: 1.2rem;
             font-weight: 600;
             padding: 18px 50px;
             border-radius: 50px;
-            box-shadow: 0 10px 30px rgba(40, 167, 69, 0.4);
+            box-shadow: 0 10px 30px rgba(30, 64, 175, 0.4);
             transition: all 0.3s ease;
             text-transform: uppercase;
             letter-spacing: 1px;
             cursor: pointer;
         }
         
-        /* Estilos para el botón de PDF */
         .btn-export-pdf {
             background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
             box-shadow: 0 10px 30px rgba(220, 53, 69, 0.4);
@@ -223,12 +236,11 @@ $filter_status = $_GET['filter_status'] ?? '';
             box-shadow: 0 15px 40px rgba(220, 53, 69, 0.6);
             background: linear-gradient(135deg, #c82333 0%, #dc3545 100%);
         }
-        /* </CHANGE> */
         
         .btn-export-main:hover {
             transform: translateY(-3px);
-            box-shadow: 0 15px 40px rgba(40, 167, 69, 0.6);
-            background: linear-gradient(135deg, #20c997 0%, #28a745 100%);
+            box-shadow: 0 15px 40px rgba(30, 64, 175, 0.6);
+            background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
         }
         
         .btn-export-main:active {
@@ -247,26 +259,29 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .filter-badge {
+            /* Cambiar badges de filtros a azul */
             display: inline-block;
-            background: #28a745;
+            background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
             color: white;
             padding: 5px 15px;
             border-radius: 20px;
             font-size: 0.85rem;
             margin: 5px;
+            box-shadow: 0 2px 4px rgba(30, 64, 175, 0.2);
         }
         
         .back-link {
             display: inline-block;
-            color: white;
+            color: #1e40af;
             text-decoration: none;
             margin-bottom: 20px;
             font-size: 1.1rem;
             transition: all 0.3s ease;
+            font-weight: 500;
         }
         
         .back-link:hover {
-            color: #f8f9fa;
+            color: #2563eb;
             transform: translateX(-5px);
         }
         
@@ -276,21 +291,23 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .info-box {
-            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-            border-left: 4px solid #2196f3;
+            /* Cambiar info box a tonos azul profesionales */
+            background: linear-gradient(135deg, #e0e7ff 0%, #dbeafe 100%);
+            border-left: 5px solid #1e40af;
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(30, 64, 175, 0.1);
         }
         
         .info-box h4 {
-            color: #1976d2;
+            color: #1e40af;
             margin-bottom: 10px;
             font-weight: 600;
         }
         
         .info-box p {
-            color: #424242;
+            color: #374151;
             margin: 0;
             line-height: 1.6;
         }
@@ -332,7 +349,6 @@ $filter_status = $_GET['filter_status'] ?? '';
                         </div>
                         
                         <div class="export-body">
-                            <!-- Información -->
                             <div class="info-box">
                                 <h4><i class="fas fa-info-circle me-2"></i>¿Cómo funciona?</h4>
                                 <p>
@@ -342,7 +358,6 @@ $filter_status = $_GET['filter_status'] ?? '';
                                 </p>
                             </div>
                             
-                            <!-- Filtros Aplicados Actualmente -->
                             <?php if (!empty($filter_supplier) || !empty($filter_status) || !empty($filter_date_from) || !empty($filter_date_to)): ?>
                             <div class="filters-section">
                                 <h5><i class="fas fa-filter me-2"></i>Filtros Aplicados</h5>
@@ -378,11 +393,9 @@ $filter_status = $_GET['filter_status'] ?? '';
                             </div>
                             <?php endif; ?>
                             
-                            <!-- Configurar Filtros -->
                             <div class="filters-section">
                                 <h5><i class="fas fa-sliders-h me-2"></i>Configurar Filtros</h5>
                                 <form method="GET" action="" class="row g-3" id="filterForm">
-                                    <!-- Reemplazar select por buscador en tiempo real -->
                                     <div class="col-md-6">
                                         <label for="supplier_search" class="form-label">Buscar Proveedor</label>
                                         <div class="search-container">
@@ -405,9 +418,6 @@ $filter_status = $_GET['filter_status'] ?? '';
                                         </div>
                                         <?php endif; ?>
                                     </div>
-                                    <!-- </CHANGE> -->
-                                    
-                                  
                                     
                                     <div class="col-md-6">
                                         <label for="filter_date_from" class="form-label">Fecha Desde</label>
@@ -425,12 +435,10 @@ $filter_status = $_GET['filter_status'] ?? '';
                                         <button type="submit" class="btn btn-primary btn-lg">
                                             <i class="fas fa-sync-alt me-2"></i>Aplicar Filtros
                                         </button>
-                                        
                                     </div>
                                 </form>
                             </div>
                             
-                            <!-- Botones de Exportación Excel y PDF -->
                             <div class="export-button-container">
                                 <button type="button" class="btn-export-main" id="exportExcelBtn">
                                     <i class="fas fa-file-excel"></i>
@@ -445,7 +453,6 @@ $filter_status = $_GET['filter_status'] ?? '';
                                 <i class="fas fa-info-circle me-1"></i>
                                 Los archivos se generarán con los filtros aplicados
                             </p>
-                            <!-- </CHANGE> -->
                         </div>
                     </div>
                 </div>
@@ -467,7 +474,6 @@ $filter_status = $_GET['filter_status'] ?? '';
         let allSuppliers = [];
         let searchTimeout;
         
-        // Cargar todos los proveedores al inicio
         fetch('search-suppliers.php')
             .then(response => response.json())
             .then(data => {
@@ -475,7 +481,6 @@ $filter_status = $_GET['filter_status'] ?? '';
             })
             .catch(error => console.error('Error cargando proveedores:', error));
         
-        // Búsqueda en tiempo real
         searchInput.addEventListener('input', function() {
             clearTimeout(searchTimeout);
             const query = this.value.trim().toLowerCase();
@@ -514,7 +519,6 @@ $filter_status = $_GET['filter_status'] ?? '';
             searchInput.value = '';
             searchResults.classList.remove('show');
             
-            // Mostrar badge del proveedor seleccionado
             const badgeHtml = `
                 <div id="selectedSupplierBadge" class="selected-supplier-badge">
                     <i class="fas fa-building me-1"></i>
@@ -537,19 +541,16 @@ $filter_status = $_GET['filter_status'] ?? '';
             if (badge) badge.remove();
         }
         
-        // Cerrar resultados al hacer clic fuera
         document.addEventListener('click', function(e) {
             if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
                 searchResults.classList.remove('show');
             }
         });
-        // </CHANGE>
         
         document.getElementById('exportExcelBtn').addEventListener('click', function() {
             exportData('excel', this);
         });
         
-        // Función para exportar a PDF
         document.getElementById('exportPdfBtn').addEventListener('click', function() {
             exportData('pdf', this);
         });
@@ -557,11 +558,9 @@ $filter_status = $_GET['filter_status'] ?? '';
         function exportData(format, btn) {
             const originalText = btn.innerHTML;
             
-            // Deshabilitar botón y mostrar spinner
             btn.disabled = true;
             btn.innerHTML = `<i class="fas fa-spinner fa-spin me-2"></i>Generando ${format.toUpperCase()}...`;
             
-            // Obtener filtros de la URL
             const urlParams = new URLSearchParams(window.location.search);
             const filters = {
                 filter_supplier: urlParams.get('filter_supplier') || '',
@@ -570,7 +569,6 @@ $filter_status = $_GET['filter_status'] ?? '';
                 filter_date_to: urlParams.get('filter_date_to') || ''
             };
             
-            // Hacer petición AJAX para obtener los datos
             fetch('export-data.php?' + new URLSearchParams(filters))
                 .then(response => response.json())
                 .then(data => {
@@ -594,7 +592,6 @@ $filter_status = $_GET['filter_status'] ?? '';
                         generatePDF(data, filters);
                     }
                     
-                    // Mostrar mensaje de éxito
                     btn.innerHTML = `<i class="fas fa-check me-2"></i>¡Descargado Exitosamente!`;
                     
                     setTimeout(() => {
@@ -610,35 +607,40 @@ $filter_status = $_GET['filter_status'] ?? '';
                 });
         }
         
+        /* Tabla en azul centrada en Excel con mayor definición */
         function generateExcel(data, filters) {
             const hojaData = [];
-            
-            // Encabezado principal
-            hojaData.push(['REPORTE DE FACTURAS PAGADAS']);
+
+            hojaData.push(["REPORTE DE FACTURAS PAGADAS-EGRESOS"]);
             hojaData.push([]);
-            
-            // Información del reporte
-            hojaData.push(['Fecha de Exportación:', new Date().toLocaleString('es-ES')]);
-            hojaData.push(['Total de Proveedores:', data.total_suppliers]);
-            hojaData.push(['Total de Facturas:', data.total_invoices]);
-            hojaData.push(['Monto Total Pagado:', '$' + data.total_paid.toLocaleString('es-ES')]);
+
+            hojaData.push(["Fecha de Exportación:", new Date().toLocaleString("es-ES")]);
+            hojaData.push(["Total de Proveedores:", data.total_suppliers]);
+            hojaData.push(["Total de Facturas:", data.total_invoices]);
+            hojaData.push(["Monto Total Pagado:", "$" + data.total_paid.toLocaleString("es-ES")]);
             hojaData.push([]);
-            
-            // Filtros aplicados
+
             if (filters.filter_supplier || filters.filter_status || filters.filter_date_from || filters.filter_date_to) {
-                hojaData.push(['FILTROS APLICADOS:']);
-                if (filters.filter_supplier) hojaData.push(['Proveedor:', filters.filter_supplier]);
-                if (filters.filter_status) hojaData.push(['Estado:', filters.filter_status]);
-                if (filters.filter_date_from) hojaData.push(['Fecha Desde:', filters.filter_date_from]);
-                if (filters.filter_date_to) hojaData.push(['Fecha Hasta:', filters.filter_date_to]);
+                hojaData.push(["FILTROS APLICADOS:"]);
+                if (filters.filter_supplier) hojaData.push(["Proveedor:", filters.filter_supplier]);
+                if (filters.filter_status) hojaData.push(["Estado:", filters.filter_status]);
+                if (filters.filter_date_from) hojaData.push(["Fecha Desde:", filters.filter_date_from]);
+                if (filters.filter_date_to) hojaData.push(["Fecha Hasta:", filters.filter_date_to]);
                 hojaData.push([]);
             }
-            
-            // Encabezados de columnas
-            hojaData.push(['Proveedor', 'N° SAP', 'N° Factura', 'Fecha Vencimiento', 'Fecha de Pago', 'Valor Total', 'Valor Pagado', 'Estado']);
-            
-            // Agregar datos de facturas
-            data.invoices.forEach(invoice => {
+
+            hojaData.push([
+                "Proveedor",
+                "N° SAP",
+                "N° Factura",
+                "Fecha Vencimiento",
+                "Fecha de Pago",
+                "Valor Total",
+                "Valor Pagado",
+                "Estado",
+            ]);
+
+            data.invoices.forEach((invoice) => {
                 hojaData.push([
                     invoice.proveedor,
                     invoice.n_sap,
@@ -647,44 +649,79 @@ $filter_status = $_GET['filter_status'] ?? '';
                     invoice.fecha_pago,
                     invoice.valor_total,
                     invoice.valor_pagado,
-                    invoice.estado
+                    invoice.estado,
                 ]);
             });
-            
-            // Crear la hoja de cálculo
+
             const worksheet = XLSX.utils.aoa_to_sheet(hojaData);
-            
-            // Ajustar ancho de columnas
+
+            const headerTableStyle = {
+                fill: { fgColor: { rgb: "FF4472C4" } },
+                font: { bold: true, color: { rgb: "FFFFFFFF" }, size: 12 },
+                alignment: { horizontal: "center", vertical: "center", wrapText: true },
+            };
+
+            const headerRowIndex = hojaData.length - data.invoices.length - 1;
+            for (let col = 0; col < 8; col++) {
+                const cellRef = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
+                worksheet[cellRef].s = headerTableStyle;
+            }
+
+            /* Aplicar estilos de centrado y definición a todas las celdas */
+            for (const key in worksheet) {
+                if (key[0] === "!") continue;
+                if (!worksheet[key].s) worksheet[key].s = {};
+                worksheet[key].s.alignment = { horizontal: "center", vertical: "center", wrapText: true };
+                worksheet[key].s.font = { size: 10, color: { rgb: "FF1e40af" } };
+                worksheet[key].s.border = {
+                    top: { style: "thin", color: { rgb: "FFD3D3D3" } },
+                    bottom: { style: "thin", color: { rgb: "FFD3D3D3" } },
+                    left: { style: "thin", color: { rgb: "FFD3D3D3" } },
+                    right: { style: "thin", color: { rgb: "FFD3D3D3" } }
+                };
+            }
+
             const columnWidths = [
-                { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 18 },
-                { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 12 }
+                { wch: 30 },
+                { wch: 15 },
+                { wch: 15 },
+                { wch: 18 },
+                { wch: 18 },
+                { wch: 15 },
+                { wch: 15 },
+                { wch: 12 },
             ];
-            worksheet['!cols'] = columnWidths;
-            
-            // Crear el libro y agregar la hoja
+            worksheet["!cols"] = columnWidths;
+            worksheet["!margins"] = { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5 };
+
             const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, 'Facturas Pagadas');
-            
-            // Generar nombre de archivo con fecha
-            const fecha = new Date().toISOString().split('T')[0];
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Facturas Pagadas");
+
+            const fecha = new Date().toISOString().split("T")[0];
             const nombreArchivo = `Facturas_Pagadas_${fecha}.xlsx`;
-            
-            // Descargar el archivo
+
             XLSX.writeFile(workbook, nombreArchivo);
         }
         
+        /* PDF con tabla azul centrada, logo y mayor calidad profesional */
         function generatePDF(data, filters) {
             const { jsPDF } = window.jspdf;
-            const doc = new jsPDF('l', 'mm', 'a4'); // Landscape para más espacio
+            const doc = new jsPDF('l', 'mm', 'a4');
             
-            // Título
+            // Agregar logo en esquina superior izquierda
+            const logoUrl = 'assets/65x45.png';
+            const logoWidth = 25;
+            const logoHeight = 20;
+            doc.addImage(logoUrl, 'PNG', 10, 8, logoWidth, logoHeight);
+            
             doc.setFontSize(18);
-            doc.setTextColor(40, 167, 69);
-            doc.text('REPORTE DE FACTURAS PAGADAS', 148, 20, { align: 'center' });
+            doc.setTextColor(30, 64, 175);
+            doc.setFont(undefined, 'bold');
+            doc.text('REPORTE DE FACTURAS PAGADAS-EGRESOS', 148, 20, { align: 'center' });
             
-            // Información del reporte
             doc.setFontSize(10);
-            doc.setTextColor(0, 0, 0);
+            doc.setTextColor(30, 64, 175);
+            doc.setFont(undefined, 'normal');
             let yPos = 35;
             doc.text(`Fecha de Exportación: ${new Date().toLocaleString('es-ES')}`, 14, yPos);
             yPos += 6;
@@ -695,13 +732,14 @@ $filter_status = $_GET['filter_status'] ?? '';
             doc.text(`Monto Total Pagado: $${data.total_paid.toLocaleString('es-ES')}`, 14, yPos);
             yPos += 10;
             
-            // Filtros aplicados
             if (filters.filter_supplier || filters.filter_status || filters.filter_date_from || filters.filter_date_to) {
                 doc.setFontSize(11);
-                doc.setTextColor(40, 167, 69);
+                doc.setTextColor(30, 64, 175);
+                doc.setFont(undefined, 'bold');
                 doc.text('FILTROS APLICADOS:', 14, yPos);
                 doc.setFontSize(9);
-                doc.setTextColor(0, 0, 0);
+                doc.setTextColor(30, 64, 175);
+                doc.setFont(undefined, 'normal');
                 yPos += 6;
                 if (filters.filter_supplier) {
                     doc.text(`Proveedor: ${filters.filter_supplier}`, 14, yPos);
@@ -722,7 +760,6 @@ $filter_status = $_GET['filter_status'] ?? '';
                 yPos += 5;
             }
             
-            // Tabla de facturas
             const tableData = data.invoices.map(invoice => [
                 invoice.proveedor,
                 invoice.n_sap,
@@ -740,13 +777,18 @@ $filter_status = $_GET['filter_status'] ?? '';
                 body: tableData,
                 theme: 'grid',
                 headStyles: {
-                    fillColor: [40, 167, 69],
+                    fillColor: [68, 114, 196],
                     textColor: 255,
                     fontStyle: 'bold',
-                    fontSize: 8
+                    fontSize: 8,
+                    halign: 'center',
+                    valign: 'middle'
                 },
                 bodyStyles: {
-                    fontSize: 7
+                    fontSize: 7,
+                    halign: 'center',
+                    valign: 'middle',
+                    textColor: [30, 64, 175]
                 },
                 columnStyles: {
                     0: { cellWidth: 45 },
@@ -758,17 +800,19 @@ $filter_status = $_GET['filter_status'] ?? '';
                     6: { cellWidth: 25 },
                     7: { cellWidth: 20 }
                 },
-                margin: { left: 14, right: 14 }
+                margin: { left: 14, right: 14 },
+                didDrawPage: function(data) {
+                    // Encabezado y pie de página
+                    const pageSize = doc.internal.pageSize;
+                    const pageHeight = pageSize.getHeight();
+                }
             });
             
-            // Generar nombre de archivo con fecha
             const fecha = new Date().toISOString().split('T')[0];
             const nombreArchivo = `Facturas_Pagadas_${fecha}.pdf`;
             
-            // Descargar el archivo
             doc.save(nombreArchivo);
         }
-        // </CHANGE>
-    </script>
+    </script> 
 </body>
 </html>
