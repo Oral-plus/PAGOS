@@ -1,7 +1,5 @@
 <?php
-
 session_start();
-
 require_once 'config/database.php';
 require_once 'includes/functions.php';
 
@@ -19,7 +17,6 @@ $filter_supplier = $_GET['filter_supplier'] ?? '';
 $filter_date_from = $_GET['filter_date_from'] ?? '';
 $filter_date_to = $_GET['filter_date_to'] ?? '';
 $filter_status = $_GET['filter_status'] ?? '';
-
 ?>
 
 <!DOCTYPE html>
@@ -59,7 +56,6 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .export-header {
-            /* Cambiar gradiente de verde a azul profesional */
             background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
             color: white;
             padding: 40px 30px;
@@ -70,7 +66,6 @@ $filter_status = $_GET['filter_status'] ?? '';
             font-size: 2.5rem;
             font-weight: 700;
             margin-bottom: 10px;
-            /* Agregar sombra de texto para mayor definición */
             text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
         }
         
@@ -85,7 +80,6 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .filters-section {
-            /* Cambiar fondo a tono azul claro para coherencia */
             background: #f0f4f8;
             border-left: 4px solid #1e40af;
             border-radius: 15px;
@@ -94,7 +88,6 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .filters-section h5 {
-            /* Cambiar color del texto a azul */
             color: #1e40af;
             margin-bottom: 20px;
             font-weight: 600;
@@ -115,7 +108,6 @@ $filter_status = $_GET['filter_status'] ?? '';
         
         .search-input:focus {
             outline: none;
-            /* Cambiar color de foco a azul */
             border-color: #1e40af;
             box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.1);
         }
@@ -134,7 +126,6 @@ $filter_status = $_GET['filter_status'] ?? '';
             left: 0;
             right: 0;
             background: white;
-            /* Cambiar borde a azul */
             border: 2px solid #1e40af;
             border-top: none;
             border-radius: 0 0 10px 10px;
@@ -154,7 +145,6 @@ $filter_status = $_GET['filter_status'] ?? '';
             cursor: pointer;
             transition: all 0.2s ease;
             border-bottom: 1px solid #f0f0f0;
-            /* Cambiar color del texto a azul para coherencia */
             color: #1f2937;
         }
         
@@ -163,7 +153,6 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .search-result-item:hover {
-            /* Cambiar fondo hover a azul claro */
             background: #eff6ff;
             padding-left: 20px;
             color: #1e40af;
@@ -171,7 +160,6 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .search-result-item.selected {
-            /* Cambiar fondo seleccionado a azul */
             background: #dbeafe;
             color: #1e40af;
             font-weight: 600;
@@ -185,7 +173,6 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .selected-supplier-badge {
-            /* Cambiar badge a azul profesional */
             display: inline-block;
             background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
             color: white;
@@ -210,7 +197,6 @@ $filter_status = $_GET['filter_status'] ?? '';
             flex-wrap: wrap;
         }
         
-        /* Botones de exportación con estilo azul profesional */
         .btn-export-main {
             background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
             border: none;
@@ -259,7 +245,6 @@ $filter_status = $_GET['filter_status'] ?? '';
         }
         
         .filter-badge {
-            /* Cambiar badges de filtros a azul */
             display: inline-block;
             background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
             color: white;
@@ -285,13 +270,7 @@ $filter_status = $_GET['filter_status'] ?? '';
             transform: translateX(-5px);
         }
         
-        .loading-spinner {
-            display: none;
-            margin-left: 10px;
-        }
-        
         .info-box {
-            /* Cambiar info box a tonos azul profesionales */
             background: linear-gradient(135deg, #e0e7ff 0%, #dbeafe 100%);
             border-left: 5px solid #1e40af;
             padding: 20px;
@@ -468,6 +447,18 @@ $filter_status = $_GET['filter_status'] ?? '';
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     
     <script>
+        // === FORMATO MONEDA COLOMBIANA ===
+        function formatCurrencyCOP(value) {
+            const num = parseFloat(value);
+            if (isNaN(num)) return '$ 0,00';
+            return new Intl.NumberFormat('es-CO', {
+                style: 'currency',
+                currency: 'COP',
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }).format(num);
+        }
+
         const searchInput = document.getElementById('supplier_search');
         const searchResults = document.getElementById('searchResults');
         const filterSupplierInput = document.getElementById('filter_supplier');
@@ -494,14 +485,13 @@ $filter_status = $_GET['filter_status'] ?? '';
                 const filtered = allSuppliers.filter(supplier => 
                     supplier.toLowerCase().includes(query)
                 );
-                
                 displaySearchResults(filtered);
             }, 300);
         });
         
         function displaySearchResults(suppliers) {
             if (suppliers.length === 0) {
-                searchResults.innerHTML = '<div class="no-results"><i class="fas fa-search me-2"></i>No se encontraron proveedores</div>';
+                searchResults.innerHTML = '<div class="no-results">No se encontraron proveedores</div>';
                 searchResults.classList.add('show');
                 return;
             }
@@ -509,7 +499,6 @@ $filter_status = $_GET['filter_status'] ?? '';
             const html = suppliers.map(supplier => 
                 `<div class="search-result-item" onclick="selectSupplier('${supplier.replace(/'/g, "\\'")}')">${supplier}</div>`
             ).join('');
-            
             searchResults.innerHTML = html;
             searchResults.classList.add('show');
         }
@@ -526,12 +515,8 @@ $filter_status = $_GET['filter_status'] ?? '';
                     <i class="fas fa-times" onclick="clearSupplier()"></i>
                 </div>
             `;
-            
             const existingBadge = document.getElementById('selectedSupplierBadge');
-            if (existingBadge) {
-                existingBadge.remove();
-            }
-            
+            if (existingBadge) existingBadge.remove();
             searchInput.parentElement.insertAdjacentHTML('afterend', badgeHtml);
         }
         
@@ -557,7 +542,6 @@ $filter_status = $_GET['filter_status'] ?? '';
         
         function exportData(format, btn) {
             const originalText = btn.innerHTML;
-            
             btn.disabled = true;
             btn.innerHTML = `<i class="fas fa-spinner fa-spin me-2"></i>Generando ${format.toUpperCase()}...`;
             
@@ -593,7 +577,6 @@ $filter_status = $_GET['filter_status'] ?? '';
                     }
                     
                     btn.innerHTML = `<i class="fas fa-check me-2"></i>¡Descargado Exitosamente!`;
-                    
                     setTimeout(() => {
                         btn.disabled = false;
                         btn.innerHTML = originalText;
@@ -607,17 +590,16 @@ $filter_status = $_GET['filter_status'] ?? '';
                 });
         }
         
-        /* Tabla en azul centrada en Excel con mayor definición */
+        // === GENERAR EXCEL CON FORMATO CORRECTO ===
         function generateExcel(data, filters) {
             const hojaData = [];
-
             hojaData.push(["REPORTE DE FACTURAS PAGADAS-EGRESOS"]);
             hojaData.push([]);
 
-            hojaData.push(["Fecha de Exportación:", new Date().toLocaleString("es-ES")]);
+            hojaData.push(["Fecha de Exportación:", new Date().toLocaleString("es-CO")]);
             hojaData.push(["Total de Proveedores:", data.total_suppliers]);
             hojaData.push(["Total de Facturas:", data.total_invoices]);
-            hojaData.push(["Monto Total Pagado:", "$" + data.total_paid.toLocaleString("es-ES")]);
+            hojaData.push(["Monto Total Pagado:", formatCurrencyCOP(data.total_paid)]);
             hojaData.push([]);
 
             if (filters.filter_supplier || filters.filter_status || filters.filter_date_from || filters.filter_date_to) {
@@ -630,44 +612,39 @@ $filter_status = $_GET['filter_status'] ?? '';
             }
 
             hojaData.push([
-                "Proveedor",
-                "N° SAP",
-                "N° Factura",
-                "Fecha Vencimiento",
-                "Fecha de Pago",
-                "Valor Total",
-                "Valor Pagado",
-                "Estado",
+                "Proveedor", "N° SAP", "N° Factura", "Fecha Vencimiento",
+                "Fecha de Pago", "Valor Total", "Valor Pagado", "Estado"
             ]);
 
-            data.invoices.forEach((invoice) => {
+            data.invoices.forEach(invoice => {
                 hojaData.push([
                     invoice.proveedor,
                     invoice.n_sap,
                     invoice.n_factura,
                     invoice.fecha_vencimiento,
                     invoice.fecha_pago,
-                    invoice.valor_total,
-                    invoice.valor_pagado,
-                    invoice.estado,
+                    formatCurrencyCOP(parseFloat(invoice.valor_total)),
+                    formatCurrencyCOP(parseFloat(invoice.valor_pagado)),
+                    invoice.estado
                 ]);
             });
 
             const worksheet = XLSX.utils.aoa_to_sheet(hojaData);
 
-            const headerTableStyle = {
+            // Estilos de cabecera
+            const headerStyle = {
                 fill: { fgColor: { rgb: "FF4472C4" } },
                 font: { bold: true, color: { rgb: "FFFFFFFF" }, size: 12 },
-                alignment: { horizontal: "center", vertical: "center", wrapText: true },
+                alignment: { horizontal: "center", vertical: "center", wrapText: true }
             };
 
-            const headerRowIndex = hojaData.length - data.invoices.length - 1;
+            const headerRow = hojaData.length - data.invoices.length - 1;
             for (let col = 0; col < 8; col++) {
-                const cellRef = XLSX.utils.encode_cell({ r: headerRowIndex, c: col });
-                worksheet[cellRef].s = headerTableStyle;
+                const cell = XLSX.utils.encode_cell({ r: headerRow, c: col });
+                if (worksheet[cell]) worksheet[cell].s = headerStyle;
             }
 
-            /* Aplicar estilos de centrado y definición a todas las celdas */
+            // Estilos generales
             for (const key in worksheet) {
                 if (key[0] === "!") continue;
                 if (!worksheet[key].s) worksheet[key].s = {};
@@ -681,38 +658,25 @@ $filter_status = $_GET['filter_status'] ?? '';
                 };
             }
 
-            const columnWidths = [
-                { wch: 30 },
-                { wch: 15 },
-                { wch: 15 },
-                { wch: 18 },
-                { wch: 18 },
-                { wch: 15 },
-                { wch: 15 },
-                { wch: 12 },
+            worksheet["!cols"] = [
+                { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 18 },
+                { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 12 }
             ];
-            worksheet["!cols"] = columnWidths;
-            worksheet["!margins"] = { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5 };
 
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "Facturas Pagadas");
 
             const fecha = new Date().toISOString().split("T")[0];
-            const nombreArchivo = `Facturas_Pagadas_${fecha}.xlsx`;
-
-            XLSX.writeFile(workbook, nombreArchivo);
+            XLSX.writeFile(workbook, `Facturas_Pagadas_${fecha}.xlsx`);
         }
         
-        /* PDF con tabla azul centrada, logo y mayor calidad profesional */
+        // === GENERAR PDF CON FORMATO CORRECTO ===
         function generatePDF(data, filters) {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF('l', 'mm', 'a4');
             
-            // Agregar logo en esquina superior izquierda
             const logoUrl = 'assets/65x45.png';
-            const logoWidth = 25;
-            const logoHeight = 20;
-            doc.addImage(logoUrl, 'PNG', 10, 8, logoWidth, logoHeight);
+            doc.addImage(logoUrl, 'PNG', 10, 8, 25, 20);
             
             doc.setFontSize(18);
             doc.setTextColor(30, 64, 175);
@@ -723,40 +687,21 @@ $filter_status = $_GET['filter_status'] ?? '';
             doc.setTextColor(30, 64, 175);
             doc.setFont(undefined, 'normal');
             let yPos = 35;
-            doc.text(`Fecha de Exportación: ${new Date().toLocaleString('es-ES')}`, 14, yPos);
-            yPos += 6;
-            doc.text(`Total de Proveedores: ${data.total_suppliers}`, 14, yPos);
-            yPos += 6;
-            doc.text(`Total de Facturas: ${data.total_invoices}`, 14, yPos);
-            yPos += 6;
-            doc.text(`Monto Total Pagado: $${data.total_paid.toLocaleString('es-ES')}`, 14, yPos);
-            yPos += 10;
+            doc.text(`Fecha de Exportación: ${new Date().toLocaleString('es-CO')}`, 14, yPos); yPos += 6;
+            doc.text(`Total de Proveedores: ${data.total_suppliers}`, 14, yPos); yPos += 6;
+            doc.text(`Total de Facturas: ${data.total_invoices}`, 14, yPos); yPos += 6;
+            doc.text(`Monto Total Pagado: ${formatCurrencyCOP(data.total_paid)}`, 14, yPos); yPos += 10;
             
             if (filters.filter_supplier || filters.filter_status || filters.filter_date_from || filters.filter_date_to) {
                 doc.setFontSize(11);
-                doc.setTextColor(30, 64, 175);
                 doc.setFont(undefined, 'bold');
-                doc.text('FILTROS APLICADOS:', 14, yPos);
+                doc.text('FILTROS APLICADOS:', 14, yPos); yPos += 6;
                 doc.setFontSize(9);
-                doc.setTextColor(30, 64, 175);
                 doc.setFont(undefined, 'normal');
-                yPos += 6;
-                if (filters.filter_supplier) {
-                    doc.text(`Proveedor: ${filters.filter_supplier}`, 14, yPos);
-                    yPos += 5;
-                }
-                if (filters.filter_status) {
-                    doc.text(`Estado: ${filters.filter_status}`, 14, yPos);
-                    yPos += 5;
-                }
-                if (filters.filter_date_from) {
-                    doc.text(`Fecha Desde: ${filters.filter_date_from}`, 14, yPos);
-                    yPos += 5;
-                }
-                if (filters.filter_date_to) {
-                    doc.text(`Fecha Hasta: ${filters.filter_date_to}`, 14, yPos);
-                    yPos += 5;
-                }
+                if (filters.filter_supplier) { doc.text(`Proveedor: ${filters.filter_supplier}`, 14, yPos); yPos += 5; }
+                if (filters.filter_status) { doc.text(`Estado: ${filters.filter_status}`, 14, yPos); yPos += 5; }
+                if (filters.filter_date_from) { doc.text(`Fecha Desde: ${filters.filter_date_from}`, 14, yPos); yPos += 5; }
+                if (filters.filter_date_to) { doc.text(`Fecha Hasta: ${filters.filter_date_to}`, 14, yPos); yPos += 5; }
                 yPos += 5;
             }
             
@@ -766,8 +711,8 @@ $filter_status = $_GET['filter_status'] ?? '';
                 invoice.n_factura,
                 invoice.fecha_vencimiento,
                 invoice.fecha_pago,
-                invoice.valor_total,
-                invoice.valor_pagado,
+                formatCurrencyCOP(parseFloat(invoice.valor_total)),
+                formatCurrencyCOP(parseFloat(invoice.valor_pagado)),
                 invoice.estado
             ]);
             
@@ -776,42 +721,18 @@ $filter_status = $_GET['filter_status'] ?? '';
                 head: [['Proveedor', 'N° SAP', 'N° Factura', 'F. Vencimiento', 'F. Pago', 'Valor Total', 'Valor Pagado', 'Estado']],
                 body: tableData,
                 theme: 'grid',
-                headStyles: {
-                    fillColor: [68, 114, 196],
-                    textColor: 255,
-                    fontStyle: 'bold',
-                    fontSize: 8,
-                    halign: 'center',
-                    valign: 'middle'
-                },
-                bodyStyles: {
-                    fontSize: 7,
-                    halign: 'center',
-                    valign: 'middle',
-                    textColor: [30, 64, 175]
-                },
+                headStyles: { fillColor: [68, 114, 196], textColor: 255, fontStyle: 'bold', fontSize: 8, halign: 'center' },
+                bodyStyles: { fontSize: 7, halign: 'center', textColor: [30, 64, 175] },
                 columnStyles: {
-                    0: { cellWidth: 45 },
-                    1: { cellWidth: 20 },
-                    2: { cellWidth: 25 },
-                    3: { cellWidth: 25 },
-                    4: { cellWidth: 25 },
-                    5: { cellWidth: 25 },
-                    6: { cellWidth: 25 },
-                    7: { cellWidth: 20 }
+                    0: { cellWidth: 45 }, 1: { cellWidth: 20 }, 2: { cellWidth: 25 },
+                    3: { cellWidth: 25 }, 4: { cellWidth: 25 }, 5: { cellWidth: 25 },
+                    6: { cellWidth: 25 }, 7: { cellWidth: 20 }
                 },
-                margin: { left: 14, right: 14 },
-                didDrawPage: function(data) {
-                    // Encabezado y pie de página
-                    const pageSize = doc.internal.pageSize;
-                    const pageHeight = pageSize.getHeight();
-                }
+                margin: { left: 14, right: 14 }
             });
             
             const fecha = new Date().toISOString().split('T')[0];
-            const nombreArchivo = `Facturas_Pagadas_${fecha}.pdf`;
-            
-            doc.save(nombreArchivo);
+            doc.save(`Facturas_Pagadas_${fecha}.pdf`);
         }
     </script> 
 </body>
