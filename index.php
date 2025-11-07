@@ -1161,26 +1161,9 @@ function formatDate1($date) {
             <?php include 'includes/sidebar.php'; ?>
             
             <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
-                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-                    <h1 class="h2">
-                        <i class="fas fa-tachometer-alt me-2"></i>
-                        Panel de Control - Optimizado
-                    </h1>
-                    <?php if (in_array($role, ['admin','Preparador'])): ?>
-                        <a href="export_excel.php" class="btn btn-success">
-                            <i class="fas fa-file-excel me-2"></i> Exportar a Excel
-                        </a>
-                    <?php endif; ?>
-                </div>
+               
                 
-                <div class="optimization-notice">
-                    <h5><i class="fas fa-rocket me-2"></i>Sistema Optimizado para Carga Rápida</h5>
-                    <p>
-                        <i class="fas fa-info-circle me-2"></i>
-                        Las facturas se cargan solo cuando usas los filtros o la búsqueda. Esto hace que la página cargue mucho más rápido.
-                        <strong>Usa la búsqueda o los filtros para ver las facturas.</strong>
-                    </p>
-                </div>
+           
                 
                 <?php if (isset($_SESSION['success_message'])): ?>
                     <div class="alert alert-success alert-dismissible fade show">
@@ -1244,7 +1227,9 @@ function formatDate1($date) {
                     <div class="card-header bg-primary text-white">
                         <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filtros</h5>
                     </div>
+                    
                     <div class="card-body">
+                
                         <div class="row mb-3">
                             <div class="col-12">
                                 <div class="form-check form-switch">
@@ -1278,6 +1263,11 @@ function formatDate1($date) {
                                 <label for="overdue_days" class="form-label">Días Vencidos</label>
                                 <input type="number" class="form-control filter-field" id="overdue_days" name="overdue_days" placeholder="Días exactos">
                             </div>
+                            <?php if (in_array($role, ['admin','Preparador'])): ?>
+                        <a href="export_excel.php" class="btn btn-success">
+                            <i class="fas fa-file-excel me-2"></i> Exportar a Excel
+                        </a>
+                    <?php endif; ?>
                             <div class="col-md-12 d-flex justify-content-end">
                                 <button type="button" id="clear-filters" class="btn btn-secondary">
                                     <i class="fas fa-eraser me-1"></i> Limpiar
@@ -1285,7 +1275,9 @@ function formatDate1($date) {
                                 <button type="button" id="apply-filters" class="btn btn-primary ms-2">
                                     <i class="fas fa-search me-1"></i> Aplicar Filtros
                                 </button>
+                                
                             </div>
+                            
                         </form>
                     </div>
                 </div>

@@ -542,256 +542,449 @@ function formatApprovalTime($timestamp) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/styles.css">
     <style>
-        /* Estilo para la etiqueta de corregido */
-        .badge-corregido {
-            background-color: #ffc107;
-            color: #212529;
-        }
-        
-        /* Estilo para el filtro de rango de fechas */
-        .date-filter-container {
-            background: linear-gradient(135deg,rgb(69, 73, 77),rgb(69, 73, 77));
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
-            color: white;
-        }
-        
-        .date-filter-container.contador-verificador {
-            background: linear-gradient(135deg, #17a2b8, #138496);
-        }
-        
-        .date-filter-container.verificador {
-            background: linear-gradient(135deg, #6f42c1, #5a32a3);
-        }
-        
-        /* Estilo para el filtro de facturas aprobadas con rango de fechas */
-        .approved-date-filter {
-            background: linear-gradient(135deg, #28a745, #20c997);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 15px;
-            color: white;
-        }
-        
-        /* Estilo para destacar facturas aprobadas recientemente */
-        .recent-approval {
-            background-color: #f8f9fa;
-            border-left: 4px solid #28a745;
-        }
-        
-        .approval-time-badge {
-            background: linear-gradient(45deg, #28a745, #20c997);
-            color: white;
-            font-weight: 500;
-        }
-        
-        .today-ok-invoice {
-            background-color: #e3f2fd;
-            border-left: 4px solid #2196f3;
-        }
-        
-        .supplier-group {
-            background-color: #f8f9fa;
-            border-left: 3px solid #007bff;
-        }
-        
-        .supplier-header {
-            background: linear-gradient(135deg, #e9ecef, #f8f9fa) !important;
-            font-weight: bold;
-            color: #495057;
-            border-top: 3px solid #007bff;
-            border-bottom: 1px solid #dee2e6;
-        }
-        
-        .supplier-total-badge {
-            background: linear-gradient(45deg, #007bff, #0056b3);
-            color: white;
-            font-weight: 600;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.9em;
-        }
-        
-        .supplier-count-badge {
-            background: linear-gradient(45deg, #28a745, #20c997);
-            color: white;
-            font-weight: 500;
-            padding: 4px 8px;
-            border-radius: 15px;
-            font-size: 0.8em;
-        }
-        
-        .grand-total-card {
-            background: linear-gradient(135deg, #17a2b8, #138496);
-            color: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-        
-        .grand-total-value {
-            font-size: 1.8em;
-            font-weight: bold;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-        }
+       /* ===========================
+   VARIABLES DE COLOR - PALETA COHESIVA
+   =========================== */
+:root {
+    --primary: #2563eb;
+    --primary-dark: #1e40af;
+    --primary-light: #3b82f6;
+    
+    --secondary: #0891b2;
+    --secondary-dark: #0e7490;
+    --secondary-light: #06b6d4;
+    
+    --success: #059669;
+    --success-dark: #047857;
+    --success-light: #10b981;
+    
+    --warning: #d97706;
+    --warning-dark: #b45309;
+    --warning-light: #f59e0b;
+    
+    --purple: #7c3aed;
+    --purple-dark: #6d28d9;
+    --purple-light: #8b5cf6;
+    
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-700: #374151;
+    --gray-800: #1f2937;
+    --gray-900: #111827;
+    
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-full: 9999px;
+    
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
 
-        .settings-panel {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            padding: 15px;
-            z-index: 1050;
-            max-width: 300px;
-            transform: translateX(100%);
-            transition: transform 0.3s ease;
-        }
-        
-        .settings-panel.show {
-            transform: translateX(0);
-        }
-        
-        .settings-toggle {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1051;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        }
-        
-        .preference-item {
-            margin-bottom: 10px;
-            padding: 8px;
-            border-radius: 5px;
-            background: #f8f9fa;
-        }
-        
-        .auto-save-indicator {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #28a745;
-            color: white;
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-size: 0.8em;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            z-index: 1000;
-        }
-        
-        .auto-save-indicator.show {
-            opacity: 1;
-        }
+/* ===========================
+   BADGES Y ETIQUETAS
+   =========================== */
+.badge-corregido {
+    background: linear-gradient(135deg, var(--warning), var(--warning-dark));
+    color: white;
+    font-weight: 500;
+    padding: 0.35rem 0.75rem;
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-sm);
+    font-size: 0.8125rem;
+    letter-spacing: 0.025em;
+}
 
-        .collapsing {
-            transition: height 0.2s ease;
-        }
-        
-        .back-button {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 60px;
-            height: 60px;
-            background: #2563eb;
-            border: none;
-            border-radius: 50%;
-            color: white;
-            font-size: 24px;
-            cursor: pointer;
-            box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4);
-            transition: all 0.3s ease;
-            z-index: 1000;
-            display: none;
-            align-items: center;
-            justify-content: center;
-        }
- 
-        .back-button:hover {
-            background: #1d4ed8;
-            transform: translateY(-3px);
-            box-shadow: 0 6px 25px rgba(37, 99, 235, 0.5);
-        }
- 
-        .back-button:active {
-            transform: translateY(-1px);
-        }
- 
-        .arrow {
-            transition: transform 0.3s ease;
-        }
- 
-        .back-button:hover .arrow {
-            transform: translateX(-2px);
-        }
-        
-        .bg-purple {
-            background-color: #6f42c1 !important;
-        }
-        
-        .text-purple {
-            color: #6f42c1 !important;
-        }
-        
-        .supplier-header td {
-            background: linear-gradient(135deg, #f8f9fa, #e9ecef) !important;
-            border-top: 2px solid #007bff;
-            font-size: 0.95em;
-            padding: 8px 12px;
-        }
-        
-        .supplier-group {
-            border-left: 2px solid transparent;
-        }
-        
-        .supplier-group:hover {
-            border-left-color: #007bff;
-            background-color: #f8f9fa;
-        }
+.approval-time-badge {
+    background: linear-gradient(135deg, var(--success), var(--success-dark));
+    color: white;
+    font-weight: 500;
+    padding: 0.35rem 0.75rem;
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-sm);
+    font-size: 0.8125rem;
+}
 
-        .compact-view .table td {
-            padding: 0.25rem 0.5rem;
-            font-size: 0.875rem;
-        }
+.supplier-total-badge {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: white;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-full);
+    font-size: 0.9375rem;
+    box-shadow: var(--shadow-md);
+    letter-spacing: 0.025em;
+}
 
-        .compact-view .badge {
-            font-size: 0.7rem;
-            padding: 0.2rem 0.4rem;
-        }
+.supplier-count-badge {
+    background: linear-gradient(135deg, var(--success-light), var(--success));
+    color: white;
+    font-weight: 500;
+    padding: 0.35rem 0.65rem;
+    border-radius: var(--radius-full);
+    font-size: 0.8125rem;
+    box-shadow: var(--shadow-sm);
+}
 
-        .compact-view .btn-sm {
-            padding: 0.125rem 0.25rem;
-            font-size: 0.75rem;
-        }
+/* ===========================
+   CONTENEDORES DE FILTROS
+   =========================== */
+.date-filter-container {
+    background: linear-gradient(135deg, #1e40af);
 
-        .settings-panel {
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+    color: white;
+    box-shadow: var(--shadow-md);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
 
-        .auto-save-indicator {
-            transition: all 0.3s ease;
-        }
 
-        @media (max-width: 768px) {
-            .settings-panel {
-                right: 10px;
-                left: 10px;
-                max-width: none;
-            }
-            
-            .settings-toggle {
-                right: 10px;
-            }
-        }
+
+.date-filter-container.verificador {
+    background: linear-gradient(135deg, var(--purple), var(--purple-dark));
+}
+
+.approved-date-filter {
+    background: linear-gradient(135deg, var(--success), var(--success-dark));
+    border-radius: var(--radius-lg);
+    padding: 1rem;
+    margin-bottom: 1.25rem;
+    color: white;
+    box-shadow: var(--shadow-md);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ===========================
+   TARJETAS Y GRUPOS
+   =========================== */
+.grand-total-card {
+    background: linear-gradient(135deg, var(--secondary), var(--secondary-dark));
+    color: white;
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.grand-total-value {
+    font-size: 2rem;
+    font-weight: 700;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    letter-spacing: -0.025em;
+}
+
+.recent-approval {
+    background-color: var(--gray-50);
+    border-left: 4px solid var(--success);
+    transition: var(--transition);
+}
+
+.recent-approval:hover {
+    background-color: white;
+    box-shadow: var(--shadow-sm);
+}
+
+.today-ok-invoice {
+    background-color: #eff6ff;
+    border-left: 4px solid var(--primary);
+    transition: var(--transition);
+}
+
+.today-ok-invoice:hover {
+    background-color: white;
+    box-shadow: var(--shadow-sm);
+}
+
+.supplier-group {
+    background-color: var(--gray-50);
+    border-left: 3px solid var(--primary);
+    transition: var(--transition);
+}
+
+.supplier-group:hover {
+    background-color: white;
+    border-left-color: var(--primary-dark);
+    box-shadow: var(--shadow-sm);
+}
+
+.supplier-header {
+    background: linear-gradient(135deg, var(--gray-100), var(--gray-50)) !important;
+    font-weight: 600;
+    color: var(--gray-800);
+    border-top: 3px solid var(--primary);
+    border-bottom: 1px solid var(--gray-200);
+}
+
+.supplier-header td {
+    background: linear-gradient(135deg, var(--gray-100), var(--gray-50)) !important;
+    border-top: 2px solid var(--primary);
+    font-size: 0.9375rem;
+    padding: 0.75rem 1rem;
+    letter-spacing: 0.025em;
+}
+
+/* ===========================
+   PANEL DE CONFIGURACIÓN
+   =========================== */
+.settings-panel {
+    position: fixed;
+    top: 1.25rem;
+    right: 1.25rem;
+    background: white;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    padding: 1.25rem;
+    z-index: 1050;
+    max-width: 320px;
+    transform: translateX(calc(100% + 1.25rem));
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid var(--gray-200);
+}
+
+.settings-panel.show {
+    transform: translateX(0);
+}
+
+.settings-toggle {
+    position: fixed;
+    top: 1.25rem;
+    right: 1.25rem;
+    z-index: 1051;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: white;
+    border: none;
+    border-radius: var(--radius-full);
+    width: 56px;
+    height: 56px;
+    box-shadow: var(--shadow-lg);
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.settings-toggle:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: var(--shadow-xl);
+    background: linear-gradient(135deg, var(--primary-light), var(--primary));
+}
+
+.settings-toggle:active {
+    transform: translateY(0) scale(1);
+}
+
+.preference-item {
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    transition: var(--transition);
+}
+
+.preference-item:hover {
+    background: white;
+    box-shadow: var(--shadow-sm);
+}
+
+/* ===========================
+   INDICADORES Y NOTIFICACIONES
+   =========================== */
+.auto-save-indicator {
+    position: fixed;
+    bottom: 1.25rem;
+    right: 1.25rem;
+    background: linear-gradient(135deg, var(--success), var(--success-dark));
+    color: white;
+    padding: 0.625rem 1.25rem;
+    border-radius: var(--radius-full);
+    font-size: 0.875rem;
+    font-weight: 500;
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1000;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.auto-save-indicator.show {
+    opacity: 1;
+    transform: translateY(-5px);
+}
+
+/* ===========================
+   BOTÓN DE REGRESO
+   =========================== */
+.back-button {
+    position: fixed;
+    bottom: 1.25rem;
+    right: 1.25rem;
+    width: 64px;
+    height: 64px;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    border: none;
+    border-radius: var(--radius-full);
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+    box-shadow: var(--shadow-xl);
+    transition: var(--transition);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.back-button:hover {
+    background: linear-gradient(135deg, var(--primary-light), var(--primary));
+    transform: translateY(-4px) scale(1.05);
+    box-shadow: 0 20px 30px -5px rgba(37, 99, 235, 0.4);
+}
+
+.back-button:active {
+    transform: translateY(-2px) scale(1);
+}
+
+.arrow {
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.back-button:hover .arrow {
+    transform: translateX(-3px);
+}
+
+/* ===========================
+   UTILIDADES
+   =========================== */
+.bg-purple {
+    background: linear-gradient(135deg, var(--purple), var(--purple-dark)) !important;
+}
+
+.text-purple {
+    color: var(--purple) !important;
+}
+
+.collapsing {
+    transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ===========================
+   VISTA COMPACTA
+   =========================== */
+.compact-view .table td {
+    padding: 0.375rem 0.625rem;
+    font-size: 0.875rem;
+}
+
+.compact-view .badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.compact-view .btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+}
+
+/* ===========================
+   RESPONSIVE
+   =========================== */
+@media (max-width: 768px) {
+    :root {
+        --radius-lg: 10px;
+        --radius-md: 6px;
+    }
+    
+    .settings-panel {
+        right: 0.75rem;
+        left: 0.75rem;
+        max-width: none;
+        top: 0.75rem;
+    }
+    
+    .settings-toggle {
+        right: 0.75rem;
+        top: 0.75rem;
+        width: 48px;
+        height: 48px;
+    }
+    
+    .back-button {
+        width: 56px;
+        height: 56px;
+        bottom: 1rem;
+        right: 1rem;
+    }
+    
+    .grand-total-value {
+        font-size: 1.5rem;
+    }
+    
+    .auto-save-indicator {
+        bottom: 1rem;
+        right: 1rem;
+        font-size: 0.8125rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .date-filter-container,
+    .approved-date-filter {
+        padding: 1rem;
+        border-radius: var(--radius-md);
+    }
+    
+    .grand-total-card {
+        padding: 1.25rem;
+    }
+    
+    .supplier-header td {
+        padding: 0.625rem 0.75rem;
+        font-size: 0.875rem;
+    }
+}
+
+/* ===========================
+   ANIMACIONES SUAVES
+   =========================== */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.recent-approval,
+.today-ok-invoice,
+.supplier-group {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* ===========================
+   MEJORAS DE ACCESIBILIDAD
+   =========================== */
+*:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
+.settings-toggle:focus-visible,
+.back-button:focus-visible {
+    outline-color: white;
+    outline-width: 3px;
+}
     </style>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-X2F3Z0336Z"></script>
     <script>
@@ -851,10 +1044,7 @@ function formatApprovalTime($timestamp) {
             <?php include 'includes/sidebar.php'; ?>
             
             <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
-                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-                    <h1 class="h2">Facturas Pendientes de Aprobación</h1>
-                   
-                </div>
+              
                 
                 <?php if (isset($_SESSION['success_message'])): ?>
                     <div class="alert alert-success alert-dismissible fade show">
@@ -873,75 +1063,178 @@ function formatApprovalTime($timestamp) {
                 <?php endif; ?>
                 
                 <!-- Filtro de rango de fechas y búsqueda combinados -->
-                <div class="date-filter-container <?php echo ($role === 'contador') ? 'contador-verificador' : (($role === 'verificador') ? 'verificador' : ''); ?>">
-                    
-                    <form method="GET" action="" id="filtersForm">
-                        <div class="row g-3 align-items-end">
-                            <!-- Campo de proveedor con datalist para búsqueda por escritura -->
-                            <div class="col-md-3">
-                                <label for="filter_supplier" class="form-label fw-bold text-white">
-                                    <i class="fas fa-building me-1"></i>Proveedor
-                                </label>
-                                <input type="text" 
-                                       class="form-control" 
-                                       id="filter_supplier" 
-                                       name="filter_supplier"
-                                       list="suppliersList"
-                                       value="<?php echo htmlspecialchars($filter_supplier); ?>"
-                                       placeholder="Buscar proveedor...">
-                                <datalist id="suppliersList">
-                                    <option value="">Todos los proveedores</option>
-                                    <?php foreach ($suppliers as $supplier): ?>
-                                        <option value="<?php echo htmlspecialchars($supplier); ?>">
-                                            <?php echo htmlspecialchars($supplier); ?>
-                                            <?php if (isset($supplier_totals_pending[$supplier])): ?>
-                                                - <?php echo $supplier_totals_pending[$supplier]['count']; ?> facturas
-                                            <?php endif; ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </datalist>
-                            </div>
-                            
-                            <!-- Fecha Desde -->
-                            <div class="col-md-3">
-                                <label for="filter_date_from" class="form-label fw-bold text-white">
-                                    <i class="fas fa-calendar-alt me-1"></i>Fecha Desde
-                                </label>
-                                <input type="date" 
-                                       class="form-control" 
-                                       id="filter_date_from"
-                                       name="filter_date_from"
-                                       value="<?php echo htmlspecialchars($filter_date_from); ?>">
-                            </div>
-                            
-                            <!-- Fecha Hasta -->
-                            <div class="col-md-3">
-                                <label for="filter_date_to" class="form-label fw-bold text-white">
-                                    <i class="fas fa-calendar-alt me-1"></i>Fecha Hasta
-                                </label>
-                                <input type="date" 
-                                       class="form-control" 
-                                       id="filter_date_to"
-                                       name="filter_date_to"
-                                       value="<?php echo htmlspecialchars($filter_date_to); ?>">
-                            </div>
-                            
-                            <!-- Botones de acción -->
-                            <div class="col-md-3">
-                                <div class="d-flex gap-2">
-                                    <button type="submit" class="btn btn-light flex-fill">
-                                        <i class="fas fa-search me-1"></i>Filtrar
-                                    </button>
-                                    <a href="?" class="btn btn-outline-light">
-                                        <i class="fas fa-times"></i>
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                        
-                    
-                    </form>
-                </div>
+                <div class="date-filter-container <?php echo $role === 'contador' ? 'contador-verificador' : ($role === 'verificador' ? 'verificador' : ''); ?>">
+    <form method="GET" action="" id="filtersForm" class="minimal-filters">
+        <div class="filters-grid">
+            <h3 class="filters-title">
+                <i class="fas fa-filter"></i> Filtros
+            </h3>
+
+            <!-- Proveedor -->
+            <div class="filter-group">
+                <label for="filter_supplier">
+                    <i class="fas fa-building"></i> Proveedor
+                </label>
+                <input type="text"
+                       id="filter_supplier"
+                       name="filter_supplier"
+                       list="suppliersList"
+                       value="<?php echo htmlspecialchars($filter_supplier); ?>"
+                       placeholder="Todos los proveedores">
+                <datalist id="suppliersList">
+                    <option value="">Todos los proveedores</option>
+                    <?php foreach ($suppliers as $supplier): ?>
+                        <option value="<?php echo htmlspecialchars($supplier); ?>">
+                            <?php echo htmlspecialchars($supplier); ?>
+                            <?php if (isset($supplier_totals_pending[$supplier])): ?>
+                                (<?php echo $supplier_totals_pending[$supplier]['count']; ?>)
+                            <?php endif; ?>
+                        </option>
+                    <?php endforeach; ?>
+                </datalist>
+            </div>
+
+            <!-- Fecha Desde -->
+            <div class="filter-group">
+                <label for="filter_date_from">
+                    <i class="fas fa-calendar-alt"></i> Desde
+                </label>
+                <input type="date"
+                       id="filter_date_from"
+                       name="filter_date_from"
+                       value="<?php echo htmlspecialchars($filter_date_from); ?>">
+            </div>
+
+            <!-- Fecha Hasta -->
+            <div class="filter-group">
+                <label for="filter_date_to">
+                    <i class="fas fa-calendar-check"></i> Hasta
+                </label>
+                <input type="date"
+                       id="filter_date_to"
+                       name="filter_date_to"
+                       value="<?php echo htmlspecialchars($filter_date_to); ?>">
+            </div>
+
+            <!-- Botones -->
+            <div class="filter-actions">
+                <button type="submit" class="btn-filter">
+                    <i class="fas fa-search"></i> Filtrar
+                </button>
+                <a href="?" class="btn-reset" title="Limpiar filtros">
+                    <i class="fas fa-times"></i>
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+<style>
+    .minimal-filters {
+    font-family: system-ui, -apple-system, sans-serif;
+    --primary: #005db9;
+    --primary-light: #006edc;
+    --primary-dark: #006edc;
+    --bg-dark: #006edc;
+    --input-bg: #222;
+    --text-light: #e0e0e0;
+    --border: #333;
+}
+
+.filters-grid {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    align-items: end;
+}
+
+.filters-title {
+    grid-column: 1 / -1;
+    margin: 0 0 .5rem;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: .4rem;
+}
+
+.filter-group label {
+    font-size: .875rem;
+    font-weight: 500;
+    color: #ccc;
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+}
+
+.filter-group input {
+    padding: .55rem .75rem;
+    border: 1px solid var(--border);
+    border-radius: .5rem;
+    background: var(--input-bg);
+    color: #fff;
+    font-size: .925rem;
+    transition: all .2s ease;
+}
+
+.filter-group input:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: #2a2a2a;
+    box-shadow: 0 0 0 2px rgba(230, 230, 230, 0.62);
+}
+
+.filter-actions {
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+}
+
+.btn-filter {
+    padding: .55rem 1.1rem;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: .5rem;
+    font-weight: 500;
+    font-size: .9rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    transition: background .2s ease;
+}
+
+.btn-filter:hover {
+    background: var(--primary-light);
+}
+
+.btn-reset {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    background: transparent;
+    color: #aaa;
+    border: 1px solid var(--border);
+    border-radius: .5rem;
+    text-decoration: none;
+    transition: all .2s ease;
+}
+
+.btn-reset:hover {
+    background: var(--primary-dark);
+    color: white;
+    border-color: var(--primary);
+}
+</style>
                 
                 <div class="card shadow-sm">
                     <div class="card-header bg-primary text-white">
