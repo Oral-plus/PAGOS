@@ -120,10 +120,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reject_invoice'])) {
 }
 
 $filter_supplier = $_GET['filter_supplier'] ?? '';
-$filter_date_from = $_GET['filter_date_from'] ?? date('Y-m-d');
-$filter_date_to = $_GET['filter_date_to'] ?? date('Y-m-d');
-$filter_approved_date_from = $_GET['filter_approved_date_from'] ?? date('Y-m-d');
-$filter_approved_date_to = $_GET['filter_approved_date_to'] ?? date('Y-m-d');
+$filter_date_from = $_GET['filter_date_from'] ?? '';
+$filter_date_to = $_GET['filter_date_to'] ?? '';
+// Usar las mismas fechas del formulario principal para las facturas aprobadas
+$filter_approved_date_from = $_GET['filter_date_from'] ?? '';
+$filter_approved_date_to = $_GET['filter_date_to'] ?? '';
 
 // Obtener lista de proveedores para el filtro
 $suppliers = getAllSuppliers();
@@ -326,6 +327,9 @@ function getPendingInvoicesForCurrentUser($user_id, $user_role, $supplier = '', 
         $sql .= " ORDER BY i.nombre ASC, dias_antiguedad DESC";
         
         // Para depuración
+        error_log("=== getPendingInvoicesForCurrentUser ===");
+        error_log("User Role: " . $user_role);
+        error_log("User ID: " . $user_id);
         error_log("SQL Query: " . $sql);
         error_log("Params: " . print_r($params, true));
         
@@ -337,6 +341,8 @@ function getPendingInvoicesForCurrentUser($user_id, $user_role, $supplier = '', 
             $sql = str_replace("CONVERT(DATE, GETDATE())", "CURDATE()", $sql);
             $sql = str_replace("CONVERT(DATE, i.created_at)", "DATE(i.created_at)", $sql);
             $sql = str_replace("CONVERT(DATE, ia.created_at)", "DATE(ia.created_at)", $sql);
+            // Para MySQL, LOWER y LTRIM/RTRIM funcionan igual
+            error_log("SQL Query (MySQL converted): " . $sql);
             
             $stmt = $conn->prepare($sql);
             if (!$stmt) {
@@ -400,8 +406,14 @@ function getApprovedInvoicesByUser($user_id, $supplier = '', $date_from = '', $d
             $params[] = $supplier;
         }
         
-        // MODIFICADO: Ordenar por proveedor alfabéticamente y luego por fecha de aprobación descendente
-        $sql .= " ORDER BY i.nombre ASC, al.approval_time DESC";
+        // MODIFICADO: Ordenar primero las facturas desde 2022 hacia abajo (más antiguas primero), luego por proveedor y fecha de aprobación
+        $sql .= " ORDER BY 
+            CASE 
+                WHEN YEAR(i.fecha_vencimiento) <= 2022 THEN 0 
+                ELSE 1 
+            END ASC,
+            i.nombre ASC, 
+            al.approval_time DESC";
         
         // Limitar a 50 resultados para mejor rendimiento
         $sql .= " LIMIT 50";
@@ -412,11 +424,13 @@ function getApprovedInvoicesByUser($user_id, $supplier = '', $date_from = '', $d
         
         // Verificar si es una conexión PDO o sqlsrv
         if ($conn instanceof PDO) {
-            // Para PDO, necesitamos modificar la consulta para usar la función DATE_DIFF de MySQL
+            // Para PDO (MySQL), necesitamos modificar la consulta para usar las funciones de MySQL
             $sql = str_replace("DATEDIFF(day, i.fecha_vencimiento, GETDATE())", 
                               "DATEDIFF(CURDATE(), i.fecha_vencimiento)", $sql);
             $sql = str_replace("CAST(GETDATE() AS DATE)", "CURDATE()", $sql);
             $sql = str_replace("CAST(al.approval_time AS DATE)", "DATE(al.approval_time)", $sql);
+            // Reemplazar YEAR() para MySQL si es necesario
+            $sql = preg_replace("/YEAR\(([^)]+)\)/", "YEAR($1)", $sql);
             
             $stmt = $conn->prepare($sql);
             if (!$stmt) {
@@ -432,10 +446,15 @@ function getApprovedInvoicesByUser($user_id, $supplier = '', $date_from = '', $d
             
             $invoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
-            // Usar funciones nativas de sqlsrv
+            // Usar funciones nativas de sqlsrv (SQL Server)
             // Nota: LIMIT no funciona en SQL Server, usar TOP
+            // Convertir CAST para SQL Server
+            if (strpos($sql, "CAST(al.approval_time AS DATE)") !== false) {
+                // SQL Server usa CONVERT en lugar de CAST para fechas en este contexto
+                $sql = str_replace("CAST(al.approval_time AS DATE)", "CONVERT(DATE, al.approval_time)", $sql);
+            }
             $sql = str_replace("LIMIT 50", "", $sql);
-            $sql = str_replace("SELECT DISTINCT i.*, al.approval_time,", "SELECT TOP 50 i.*, al.approval_time,", $sql);
+            $sql = preg_replace("/SELECT DISTINCT i\.\*, al\.approval_time,/", "SELECT TOP 50 i.*, al.approval_time,", $sql);
             
             $stmt = sqlsrv_query($conn, $sql, $params);
             if ($stmt === false) {
@@ -574,18 +593,26 @@ function formatApprovalTime($timestamp) {
     --gray-800: #1f2937;
     --gray-900: #111827;
     
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    --shadow-inner: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
     
-    --radius-sm: 6px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
-    --radius-xl: 16px;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --radius-2xl: 24px;
     --radius-full: 9999px;
     
     --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    --backdrop-blur: blur(12px);
+    --glass-bg: rgba(255, 255, 255, 0.85);
 }
 
 /* ===========================
@@ -594,60 +621,131 @@ function formatApprovalTime($timestamp) {
 .badge-corregido {
     background: linear-gradient(135deg, var(--warning), var(--warning-dark));
     color: white;
-    font-weight: 500;
-    padding: 0.35rem 0.75rem;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
     border-radius: var(--radius-full);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-md);
     font-size: 0.8125rem;
-    letter-spacing: 0.025em;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: var(--backdrop-blur);
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.badge-corregido:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
 }
 
 .approval-time-badge {
     background: linear-gradient(135deg, var(--success), var(--success-dark));
     color: white;
-    font-weight: 500;
-    padding: 0.35rem 0.75rem;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
     border-radius: var(--radius-full);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-md);
     font-size: 0.8125rem;
+    letter-spacing: 0.025em;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: var(--backdrop-blur);
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.approval-time-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
 }
 
 .supplier-total-badge {
     background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     color: white;
-    font-weight: 600;
-    padding: 0.5rem 1rem;
+    font-weight: 700;
+    padding: 0.375rem 0.75rem;
     border-radius: var(--radius-full);
-    font-size: 0.9375rem;
-    box-shadow: var(--shadow-md);
-    letter-spacing: 0.025em;
+    font-size: 0.8125rem;
+    box-shadow: var(--shadow-lg);
+    letter-spacing: 0.05em;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    backdrop-filter: var(--backdrop-blur);
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.supplier-total-badge:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: var(--shadow-xl);
 }
 
 .supplier-count-badge {
     background: linear-gradient(135deg, var(--success-light), var(--success));
     color: white;
-    font-weight: 500;
-    padding: 0.35rem 0.65rem;
+    font-weight: 600;
+    padding: 0.375rem 0.625rem;
     border-radius: var(--radius-full);
-    font-size: 0.8125rem;
-    box-shadow: var(--shadow-sm);
+    font-size: 0.75rem;
+    box-shadow: var(--shadow-md);
+    letter-spacing: 0.025em;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: var(--backdrop-blur);
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.supplier-count-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
 }
 
 /* ===========================
    CONTENEDORES DE FILTROS
    =========================== */
 .date-filter-container {
-    background: linear-gradient(135deg, #1e40af);
-
+    background: linear-gradient(135deg, #1e40af, #2563eb);
     border-radius: var(--radius-lg);
-    padding: 1.25rem;
-    margin-bottom: 1.5rem;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
     color: white;
-    box-shadow: var(--shadow-md);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: var(--shadow-lg);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: var(--backdrop-blur);
+    position: relative;
+    overflow: hidden;
+    transition: var(--transition);
 }
 
+.date-filter-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+    pointer-events: none;
+    opacity: 0;
+    transition: var(--transition);
+}
 
+.date-filter-container:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-2xl);
+}
+
+.date-filter-container:hover::before {
+    opacity: 1;
+}
 
 .date-filter-container.verificador {
     background: linear-gradient(135deg, var(--purple), var(--purple-dark));
@@ -655,12 +753,19 @@ function formatApprovalTime($timestamp) {
 
 .approved-date-filter {
     background: linear-gradient(135deg, var(--success), var(--success-dark));
-    border-radius: var(--radius-lg);
-    padding: 1rem;
-    margin-bottom: 1.25rem;
+    border-radius: var(--radius-xl);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
     color: white;
-    box-shadow: var(--shadow-md);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: var(--shadow-lg);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: var(--backdrop-blur);
+    transition: var(--transition);
+}
+
+.approved-date-filter:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-xl);
 }
 
 /* ===========================
@@ -669,67 +774,136 @@ function formatApprovalTime($timestamp) {
 .grand-total-card {
     background: linear-gradient(135deg, var(--secondary), var(--secondary-dark));
     color: white;
-    border-radius: var(--radius-lg);
-    padding: 1.5rem;
-    box-shadow: var(--shadow-lg);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-xl);
+    padding: 2rem;
+    box-shadow: var(--shadow-xl);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: var(--backdrop-blur);
+    position: relative;
+    overflow: hidden;
+    transition: var(--transition);
+}
+
+.grand-total-card::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.grand-total-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-2xl);
 }
 
 .grand-total-value {
-    font-size: 2rem;
-    font-weight: 700;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    letter-spacing: -0.025em;
+    font-size: 2.5rem;
+    font-weight: 800;
+    text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    letter-spacing: -0.03em;
+    position: relative;
+    z-index: 1;
 }
 
 .recent-approval {
-    background-color: var(--gray-50);
-    border-left: 4px solid var(--success);
+    background: linear-gradient(90deg, rgba(5, 150, 105, 0.05), rgba(5, 150, 105, 0.02));
+    border-left: 5px solid var(--success);
+    border-radius: var(--radius-md);
     transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.recent-approval::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    background: linear-gradient(180deg, var(--success), var(--success-dark));
+    box-shadow: 0 0 10px rgba(5, 150, 105, 0.5);
 }
 
 .recent-approval:hover {
-    background-color: white;
-    box-shadow: var(--shadow-sm);
+    background: linear-gradient(90deg, rgba(5, 150, 105, 0.08), rgba(5, 150, 105, 0.03));
+    transform: translateX(4px);
+    box-shadow: var(--shadow-md);
 }
 
 .today-ok-invoice {
-    background-color: #eff6ff;
-    border-left: 4px solid var(--primary);
+    background: linear-gradient(90deg, rgba(37, 99, 235, 0.05), rgba(37, 99, 235, 0.02));
+    border-left: 5px solid var(--primary);
+    border-radius: var(--radius-md);
     transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.today-ok-invoice::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    background: linear-gradient(180deg, var(--primary), var(--primary-dark));
+    box-shadow: 0 0 10px rgba(37, 99, 235, 0.5);
 }
 
 .today-ok-invoice:hover {
-    background-color: white;
-    box-shadow: var(--shadow-sm);
+    background: linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.03));
+    transform: translateX(4px);
+    box-shadow: var(--shadow-md);
 }
 
 .supplier-group {
-    background-color: var(--gray-50);
-    border-left: 3px solid var(--primary);
+    background: linear-gradient(90deg, rgba(37, 99, 235, 0.03), transparent);
+    border-left: 4px solid var(--primary);
+    border-radius: var(--radius-md);
     transition: var(--transition);
+    position: relative;
 }
 
 .supplier-group:hover {
-    background-color: white;
+    background: linear-gradient(90deg, rgba(37, 99, 235, 0.06), rgba(37, 99, 235, 0.02));
     border-left-color: var(--primary-dark);
-    box-shadow: var(--shadow-sm);
+    border-left-width: 5px;
+    box-shadow: var(--shadow-md);
 }
 
 .supplier-header {
     background: linear-gradient(135deg, var(--gray-100), var(--gray-50)) !important;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--gray-800);
-    border-top: 3px solid var(--primary);
-    border-bottom: 1px solid var(--gray-200);
+    border-top: 4px solid var(--primary);
+    border-bottom: 2px solid var(--gray-200);
+    position: relative;
+    box-shadow: var(--shadow-sm);
+}
+
+.supplier-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--primary), transparent);
 }
 
 .supplier-header td {
     background: linear-gradient(135deg, var(--gray-100), var(--gray-50)) !important;
-    border-top: 2px solid var(--primary);
-    font-size: 0.9375rem;
-    padding: 0.75rem 1rem;
-    letter-spacing: 0.025em;
+    border-top: 4px solid var(--primary);
+    font-size: 0.875rem;
+    padding: 0.5rem 0.5rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    font-weight: 700;
 }
 
 /* ===========================
@@ -739,19 +913,43 @@ function formatApprovalTime($timestamp) {
     position: fixed;
     top: 1.25rem;
     right: 1.25rem;
-    background: white;
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-xl);
-    padding: 1.25rem;
+    background: var(--glass-bg);
+    backdrop-filter: var(--backdrop-blur);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-2xl);
+    padding: 1.75rem;
     z-index: 1050;
-    max-width: 320px;
+    max-width: 360px;
     transform: translateX(calc(100% + 1.25rem));
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 1px solid var(--gray-200);
+    transition: var(--transition-slow);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    overflow: hidden;
+}
+
+.settings-panel::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--primary), var(--primary-light));
 }
 
 .settings-panel.show {
     transform: translateX(0);
+    animation: slideInRight 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(calc(100% + 1.25rem));
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
 }
 
 .settings-toggle {
@@ -763,35 +961,88 @@ function formatApprovalTime($timestamp) {
     color: white;
     border: none;
     border-radius: var(--radius-full);
-    width: 56px;
-    height: 56px;
-    box-shadow: var(--shadow-lg);
+    width: 60px;
+    height: 60px;
+    box-shadow: var(--shadow-xl);
     transition: var(--transition);
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: var(--backdrop-blur);
+}
+
+.settings-toggle::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--primary-light), var(--primary));
+    opacity: 0;
+    transition: var(--transition);
+    z-index: -1;
 }
 
 .settings-toggle:hover {
-    transform: translateY(-2px) scale(1.05);
-    box-shadow: var(--shadow-xl);
+    transform: translateY(-4px) scale(1.08) rotate(90deg);
+    box-shadow: var(--shadow-2xl);
     background: linear-gradient(135deg, var(--primary-light), var(--primary));
 }
 
+.settings-toggle:hover::before {
+    opacity: 1;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        transform: scale(1);
+        opacity: 0.5;
+    }
+    50% {
+        transform: scale(1.1);
+        opacity: 0.8;
+    }
+}
+
 .settings-toggle:active {
-    transform: translateY(0) scale(1);
+    transform: translateY(-2px) scale(1.05) rotate(90deg);
 }
 
 .preference-item {
-    margin-bottom: 0.75rem;
-    padding: 0.75rem;
-    border-radius: var(--radius-md);
-    background: var(--gray-50);
-    border: 1px solid var(--gray-200);
+    margin-bottom: 1rem;
+    padding: 1rem 1.25rem;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, var(--gray-50), white);
+    border: 2px solid var(--gray-200);
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.preference-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, var(--primary), var(--primary-light));
+    transform: scaleY(0);
     transition: var(--transition);
 }
 
 .preference-item:hover {
     background: white;
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-md);
+    border-color: var(--primary);
+    transform: translateX(4px);
+}
+
+.preference-item:hover::before {
+    transform: scaleY(1);
 }
 
 /* ===========================
@@ -799,24 +1050,61 @@ function formatApprovalTime($timestamp) {
    =========================== */
 .auto-save-indicator {
     position: fixed;
-    bottom: 1.25rem;
-    right: 1.25rem;
+    bottom: 1.5rem;
+    right: 1.5rem;
     background: linear-gradient(135deg, var(--success), var(--success-dark));
     color: white;
-    padding: 0.625rem 1.25rem;
+    padding: 0.875rem 1.5rem;
     border-radius: var(--radius-full);
     font-size: 0.875rem;
-    font-weight: 500;
+    font-weight: 600;
     opacity: 0;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: var(--transition-slow);
     z-index: 1000;
-    box-shadow: var(--shadow-lg);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: var(--shadow-xl);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    backdrop-filter: var(--backdrop-blur);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    letter-spacing: 0.025em;
+    transform: translateY(20px) scale(0.9);
 }
 
 .auto-save-indicator.show {
     opacity: 1;
-    transform: translateY(-5px);
+    transform: translateY(0) scale(1);
+    animation: slideUpBounce 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes slideUpBounce {
+    0% {
+        transform: translateY(20px) scale(0.9);
+        opacity: 0;
+    }
+    60% {
+        transform: translateY(-5px) scale(1.05);
+    }
+    100% {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+.auto-save-indicator::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--success-light), var(--success));
+    opacity: 0;
+    z-index: -1;
+    transition: var(--transition);
+}
+
+.auto-save-indicator.show::before {
+    opacity: 0.5;
+    animation: pulse 2s infinite;
 }
 
 /* ===========================
@@ -824,40 +1112,208 @@ function formatApprovalTime($timestamp) {
    =========================== */
 .back-button {
     position: fixed;
-    bottom: 1.25rem;
-    right: 1.25rem;
-    width: 64px;
-    height: 64px;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    width: 70px;
+    height: 70px;
     background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     border: none;
     border-radius: var(--radius-full);
     color: white;
-    font-size: 1.5rem;
+    font-size: 1.75rem;
     cursor: pointer;
-    box-shadow: var(--shadow-xl);
+    box-shadow: var(--shadow-2xl);
     transition: var(--transition);
     z-index: 1000;
     display: none;
     align-items: center;
     justify-content: center;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: var(--backdrop-blur);
+    position: relative;
+    overflow: hidden;
+}
+
+.back-button::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--primary-light), var(--primary));
+    opacity: 0;
+    z-index: -1;
+    transition: var(--transition);
 }
 
 .back-button:hover {
     background: linear-gradient(135deg, var(--primary-light), var(--primary));
-    transform: translateY(-4px) scale(1.05);
-    box-shadow: 0 20px 30px -5px rgba(37, 99, 235, 0.4);
+    transform: translateY(-6px) scale(1.08);
+    box-shadow: 0 25px 40px -8px rgba(37, 99, 235, 0.5);
+}
+
+.back-button:hover::before {
+    opacity: 1;
+    animation: pulse 2s infinite;
 }
 
 .back-button:active {
-    transform: translateY(-2px) scale(1);
+    transform: translateY(-3px) scale(1.05);
 }
 
 .arrow {
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: var(--transition);
+    display: inline-block;
+    font-weight: 700;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .back-button:hover .arrow {
-    transform: translateX(-3px);
+    transform: translateX(-5px) scale(1.1);
+}
+
+/* ===========================
+   TABLAS Y ELEMENTOS
+   =========================== */
+.table {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    table-layout: auto;
+    font-size: 0.875rem;
+}
+
+.table-responsive {
+    overflow-x: visible;
+    width: 100%;
+}
+
+.table thead th {
+    background: linear-gradient(135deg, var(--gray-100), var(--gray-50));
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.75rem;
+    padding: 0.5rem 0.5rem;
+    border-bottom: 3px solid var(--primary);
+    color: var(--gray-800);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    white-space: nowrap;
+}
+
+.table tbody tr {
+    transition: var(--transition);
+    border-bottom: 1px solid var(--gray-200);
+}
+
+.table tbody tr:hover {
+    background: linear-gradient(90deg, rgba(37, 99, 235, 0.03), rgba(37, 99, 235, 0.01));
+    box-shadow: var(--shadow-sm);
+}
+
+.table tbody td {
+    padding: 0.5rem 0.5rem;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--gray-200);
+    font-size: 0.875rem;
+}
+
+.card {
+    border: none;
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg);
+    overflow: visible;
+    transition: var(--transition);
+    background: white;
+}
+
+.card:hover {
+    box-shadow: var(--shadow-xl);
+}
+
+.card-header {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    color: white;
+    font-weight: 700;
+    padding: 0.75rem 1rem;
+    border-bottom: 3px solid rgba(255, 255, 255, 0.2);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.875rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.card-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+    pointer-events: none;
+}
+
+.card-header.bg-success {
+    background: linear-gradient(135deg, var(--success), var(--success-dark));
+}
+
+.card-body {
+    padding: 1rem;
+}
+
+.btn {
+    border-radius: var(--radius-lg);
+    font-weight: 600;
+    padding: 0.625rem 1.25rem;
+    transition: var(--transition);
+    letter-spacing: 0.025em;
+    border: 2px solid transparent;
+    box-shadow: var(--shadow-sm);
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: var(--radius-md);
+}
+
+.btn-success {
+    background: linear-gradient(135deg, var(--success), var(--success-dark));
+    border-color: var(--success-dark);
+}
+
+.btn-success:hover {
+    background: linear-gradient(135deg, var(--success-light), var(--success));
+    box-shadow: var(--shadow-lg);
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+    border-color: #b91c1c;
+}
+
+.btn-danger:hover {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    box-shadow: var(--shadow-lg);
+}
+
+.btn-info {
+    background: linear-gradient(135deg, var(--secondary), var(--secondary-dark));
+    border-color: var(--secondary-dark);
+}
+
+.btn-info:hover {
+    background: linear-gradient(135deg, var(--secondary-light), var(--secondary));
+    box-shadow: var(--shadow-lg);
 }
 
 /* ===========================
@@ -872,24 +1328,24 @@ function formatApprovalTime($timestamp) {
 }
 
 .collapsing {
-    transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ===========================
    VISTA COMPACTA
    =========================== */
 .compact-view .table td {
-    padding: 0.375rem 0.625rem;
+    padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
 }
 
 .compact-view .badge {
     font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
+    padding: 0.3rem 0.6rem;
 }
 
 .compact-view .btn-sm {
-    padding: 0.25rem 0.5rem;
+    padding: 0.35rem 0.75rem;
     font-size: 0.8125rem;
 }
 
@@ -957,33 +1413,235 @@ function formatApprovalTime($timestamp) {
 @keyframes fadeIn {
     from {
         opacity: 0;
-        transform: translateY(10px);
+        transform: translateY(15px) scale(0.98);
     }
     to {
         opacity: 1;
-        transform: translateY(0);
+        transform: none;
+    }
+}
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: none;
     }
 }
 
 .recent-approval,
 .today-ok-invoice,
 .supplier-group {
+    animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card {
+    animation: slideInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.table tbody tr {
     animation: fadeIn 0.3s ease-out;
+    animation-fill-mode: both;
+}
+
+.table tbody tr:nth-child(1) { animation-delay: 0.05s; }
+.table tbody tr:nth-child(2) { animation-delay: 0.1s; }
+.table tbody tr:nth-child(3) { animation-delay: 0.15s; }
+.table tbody tr:nth-child(4) { animation-delay: 0.2s; }
+.table tbody tr:nth-child(5) { animation-delay: 0.25s; }
+.table tbody tr:nth-child(n+6) { animation-delay: 0.3s; }
+
+.badge,
+.btn {
+    animation: scaleIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ===========================
    MEJORAS DE ACCESIBILIDAD
    =========================== */
 *:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-    border-radius: var(--radius-sm);
+    outline: 3px solid var(--primary);
+    outline-offset: 3px;
+    border-radius: var(--radius-md);
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2);
 }
 
 .settings-toggle:focus-visible,
 .back-button:focus-visible {
     outline-color: white;
-    outline-width: 3px;
+    outline-width: 4px;
+    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.3);
+}
+
+/* ===========================
+   ELEMENTOS ADICIONALES PREMIUM
+   =========================== */
+.alert {
+    border-radius: var(--radius-lg);
+    border: 2px solid transparent;
+    box-shadow: var(--shadow-md);
+    padding: 1.25rem 1.5rem;
+    font-weight: 500;
+    letter-spacing: 0.025em;
+    transition: var(--transition);
+}
+
+.alert:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+}
+
+.alert-success {
+    background: linear-gradient(135deg, rgba(5, 150, 105, 0.1), rgba(5, 150, 105, 0.05));
+    border-color: var(--success);
+    color: var(--success-dark);
+}
+
+.alert-danger {
+    background: linear-gradient(135deg, rgba(220, 38, 38, 0.1), rgba(220, 38, 38, 0.05));
+    border-color: #dc2626;
+    color: #b91c1c;
+}
+
+.alert-info {
+    background: linear-gradient(135deg, rgba(8, 145, 178, 0.1), rgba(8, 145, 178, 0.05));
+    border-color: var(--secondary);
+    color: var(--secondary-dark);
+}
+
+.alert-warning {
+    background: linear-gradient(135deg, rgba(217, 119, 6, 0.1), rgba(217, 119, 6, 0.05));
+    border-color: var(--warning);
+    color: var(--warning-dark);
+}
+
+.badge {
+    font-weight: 600;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-full);
+    letter-spacing: 0.025em;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+}
+
+.badge:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: var(--shadow-md);
+}
+
+.badge.bg-success {
+    background: linear-gradient(135deg, var(--success), var(--success-dark)) !important;
+}
+
+.badge.bg-danger {
+    background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
+}
+
+.badge.bg-warning {
+    background: linear-gradient(135deg, var(--warning), var(--warning-dark)) !important;
+}
+
+.badge.bg-info {
+    background: linear-gradient(135deg, var(--secondary), var(--secondary-dark)) !important;
+}
+
+.modal-content {
+    border-radius: var(--radius-xl);
+    border: none;
+    box-shadow: var(--shadow-2xl);
+    overflow: hidden;
+}
+
+.modal-header {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    border-bottom: 3px solid rgba(255, 255, 255, 0.2);
+    padding: 1.5rem;
+}
+
+.modal-header.bg-success {
+    background: linear-gradient(135deg, var(--success), var(--success-dark));
+}
+
+.modal-header.bg-danger {
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+}
+
+.modal-body {
+    padding: 1.75rem;
+}
+
+.modal-footer {
+    padding: 1.25rem 1.75rem;
+    border-top: 2px solid var(--gray-200);
+    background: var(--gray-50);
+}
+
+.form-control,
+.form-select {
+    border-radius: var(--radius-lg);
+    border: 2px solid var(--gray-300);
+    padding: 0.75rem 1rem;
+    transition: var(--transition);
+    font-weight: 500;
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1), var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.form-check-input {
+    border-radius: var(--radius-md);
+    border: 2px solid var(--gray-300);
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.form-check-input:checked {
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    border-color: var(--primary-dark);
+    box-shadow: var(--shadow-sm);
+}
+
+.form-check-input:focus {
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2);
+}
+
+.shadow-sm {
+    box-shadow: var(--shadow-sm) !important;
+}
+
+.shadow-md {
+    box-shadow: var(--shadow-md) !important;
+}
+
+.shadow-lg {
+    box-shadow: var(--shadow-lg) !important;
+}
+
+.shadow-xl {
+    box-shadow: var(--shadow-xl) !important;
 }
     </style>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-X2F3Z0336Z"></script>
@@ -1062,14 +1720,10 @@ function formatApprovalTime($timestamp) {
                     <?php unset($_SESSION['error_message']); ?>
                 <?php endif; ?>
                 
-                <!-- Filtro de rango de fechas y búsqueda combinados -->
+                <!-- Filtro unificado compacto -->
                 <div class="date-filter-container <?php echo $role === 'contador' ? 'contador-verificador' : ($role === 'verificador' ? 'verificador' : ''); ?>">
     <form method="GET" action="" id="filtersForm" class="minimal-filters">
         <div class="filters-grid">
-            <h3 class="filters-title">
-                <i class="fas fa-filter"></i> Filtros
-            </h3>
-
             <!-- Proveedor -->
             <div class="filter-group">
                 <label for="filter_supplier">
@@ -1094,7 +1748,7 @@ function formatApprovalTime($timestamp) {
                 </datalist>
             </div>
 
-            <!-- Fecha Desde -->
+            <!-- Fecha Desde (unificado para ambos) -->
             <div class="filter-group">
                 <label for="filter_date_from">
                     <i class="fas fa-calendar-alt"></i> Desde
@@ -1105,7 +1759,7 @@ function formatApprovalTime($timestamp) {
                        value="<?php echo htmlspecialchars($filter_date_from); ?>">
             </div>
 
-            <!-- Fecha Hasta -->
+            <!-- Fecha Hasta (unificado para ambos) -->
             <div class="filter-group">
                 <label for="filter_date_to">
                     <i class="fas fa-calendar-check"></i> Hasta
@@ -1135,104 +1789,136 @@ function formatApprovalTime($timestamp) {
     --primary-light: #006edc;
     --primary-dark: #006edc;
     --bg-dark: #006edc;
-    --input-bg: #222;
+    --input-bg: rgba(255, 255, 255, 0.1);
     --text-light: #e0e0e0;
-    --border: #333;
+    --border: rgba(255, 255, 255, 0.2);
 }
 
 .filters-grid {
     display: grid;
-    gap: 1.5rem;
+    gap: 1rem;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     align-items: end;
+    position: relative;
+    z-index: 1;
 }
 
-.filters-title {
-    grid-column: 1 / -1;
-    margin: 0 0 .5rem;
-    font-size: 1.15rem;
-    font-weight: 600;
-    color: #fff;
-    display: flex;
-    align-items: center;
-    gap: .5rem;
+.filters-title i {
+    font-size: 1.25rem;
+    opacity: 0.9;
 }
 
 .filter-group {
     display: flex;
     flex-direction: column;
-    gap: .4rem;
+    gap: .5rem;
+    position: relative;
 }
 
 .filter-group label {
-    font-size: .875rem;
-    font-weight: 500;
-    color: #ccc;
+    font-size: .8125rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.95);
     display: flex;
     align-items: center;
-    gap: .4rem;
+    gap: .375rem;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.filter-group label i {
+    font-size: .875rem;
+    opacity: 0.8;
 }
 
 .filter-group input {
-    padding: .55rem .75rem;
-    border: 1px solid var(--border);
-    border-radius: .5rem;
+    padding: .625rem .875rem;
+    border: 2px solid var(--border);
+    border-radius: var(--radius-md);
     background: var(--input-bg);
+    backdrop-filter: blur(10px);
     color: #fff;
-    font-size: .925rem;
-    transition: all .2s ease;
+    font-size: .875rem;
+    font-weight: 500;
+    transition: var(--transition);
+    box-shadow: var(--shadow-sm);
+}
+
+.filter-group input::placeholder {
+    color: rgba(255, 255, 255, 0.6);
 }
 
 .filter-group input:focus {
     outline: none;
-    border-color: var(--primary);
-    background: #2a2a2a;
-    box-shadow: 0 0 0 2px rgba(230, 230, 230, 0.62);
+    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1), var(--shadow-md);
+    transform: translateY(-2px);
 }
 
 .filter-actions {
     display: flex;
-    gap: .5rem;
+    gap: .75rem;
     align-items: center;
 }
 
 .btn-filter {
-    padding: .55rem 1.1rem;
-    background: var(--primary);
+    padding: .625rem 1.25rem;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.1));
     color: white;
-    border: none;
-    border-radius: .5rem;
-    font-weight: 500;
-    font-size: .9rem;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: .875rem;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: .4rem;
-    transition: background .2s ease;
+    gap: .375rem;
+    transition: var(--transition);
+    backdrop-filter: blur(10px);
+    box-shadow: var(--shadow-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
 }
 
 .btn-filter:hover {
-    background: var(--primary-light);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.2));
+    border-color: rgba(255, 255, 255, 0.5);
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: var(--shadow-lg);
+}
+
+.btn-filter:active {
+    transform: translateY(-1px) scale(1);
 }
 
 .btn-reset {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 38px;
-    height: 38px;
-    background: transparent;
-    color: #aaa;
-    border: 1px solid var(--border);
-    border-radius: .5rem;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    color: rgba(255, 255, 255, 0.9);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: var(--radius-md);
     text-decoration: none;
-    transition: all .2s ease;
+    transition: var(--transition);
+    box-shadow: var(--shadow-sm);
+    font-size: 1rem;
 }
 
 .btn-reset:hover {
-    background: var(--primary-dark);
+    background: rgba(255, 255, 255, 0.2);
     color: white;
-    border-color: var(--primary);
+    border-color: rgba(255, 255, 255, 0.5);
+    transform: translateY(-3px) rotate(90deg) scale(1.1);
+    box-shadow: var(--shadow-md);
+}
+
+.btn-reset:active {
+    transform: translateY(-1px) rotate(90deg) scale(1.05);
 }
 </style>
                 
@@ -1254,15 +1940,15 @@ function formatApprovalTime($timestamp) {
                                 <table class="table table-striped table-hover">
                                     <thead class="table-light">
                                         <tr>
-                                            <th style="width: 120px;">Fecha</th>
-                                            <th>Proveedor</th>
-                                            <th>N Factura</th>
-                                            <th>Nit</th>
-                                            <th style="width: 120px;">Días Antigüedad</th>
-                                            <th style="width: 120px;">Valor</th>
-                                            <th style="width: 100px;">Prioridad</th>
-                                            <th style="width: 120px;">Estado</th>
-                                            <th style="width: 150px;">Acciones</th>
+                                            <th style="width: 90px;">Fecha</th>
+                                            <th style="min-width: 150px;">Proveedor</th>
+                                            <th style="width: 100px;">N Factura</th>
+                                            <th style="width: 120px;">Nit</th>
+                                            <th style="width: 100px;">Días Antigüedad</th>
+                                            <th style="width: 110px;">Valor</th>
+                                            <th style="width: 80px;">Prioridad</th>
+                                            <th style="width: 100px;">Estado</th>
+                                            <th style="width: 100px;">Acciones</th>
                                         </tr>
                                     </thead>
                                     <?php
@@ -1627,31 +2313,12 @@ function formatApprovalTime($timestamp) {
                             <h5 class="mb-0 d-flex align-items-center flex-wrap">
                                 <i class="fas fa-check-circle me-2"></i>
                                 Facturas Aprobadas por Usted
-                           
                             </h5>
-                            <!-- Filtro de rango de fechas para facturas aprobadas en fila -->
-                            <div class="d-flex gap-2 align-items-end mt-2 mt-md-0 flex-wrap">
-                                <div>
-                                    <label class="text-white fw-bold mb-1 small">
-                                        <i class="fas fa-calendar-alt me-1"></i>Desde
-                                    </label>
-                                    <input type="date" 
-                                           class="form-control form-control-sm" 
-                                           id="approvedDateFrom"
-                                           value="<?php echo htmlspecialchars($filter_approved_date_from); ?>"
-                                           onchange="updateApprovedDateFilter()">
-                                </div>
-                                <div>
-                                    <label class="text-white fw-bold mb-1 small">
-                                        <i class="fas fa-calendar-alt me-1"></i>Hasta
-                                    </label>
-                                    <input type="date" 
-                                           class="form-control form-control-sm" 
-                                           id="approvedDateTo"
-                                           value="<?php echo htmlspecialchars($filter_approved_date_to); ?>"
-                                           onchange="updateApprovedDateFilter()">
-                                </div>
-                             
+                            <div class="mt-2 mt-md-0">
+                                <small class="text-white opacity-75">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    Los filtros de fechas se aplican desde el formulario principal arriba
+                                </small>
                             </div>
                         </div>
                     </div>
@@ -1791,9 +2458,25 @@ function formatApprovalTime($timestamp) {
                                                 $isInRange = false;
                                                 if (isset($invoice['approval_time'])) {
                                                     $approvalDate = formatApprovalTime($invoice['approval_time']);
-                                                     $approvalDateOnly = $invoice['approval_time'];
+                                                    
+                                                    // Convertir approval_time a fecha para comparación
+                                                    $approvalDateTime = $invoice['approval_time'];
+                                                    if (is_object($approvalDateTime) && method_exists($approvalDateTime, 'format')) {
+                                                        $approvalDateOnly = $approvalDateTime->format('Y-m-d');
+                                                    } elseif (is_string($approvalDateTime)) {
+                                                        $approvalDateOnly = date('Y-m-d', strtotime($approvalDateTime));
+                                                    } else {
+                                                        $approvalDateOnly = date('Y-m-d');
+                                                    }
 
-                                                    $isInRange = ($approvalDateOnly >= $filter_approved_date_from && $approvalDateOnly <= $filter_approved_date_to);
+                                                    // Si hay filtros de fecha, verificar si está en rango; si no hay filtros, mostrar todas
+                                                    if (!empty($filter_approved_date_from) && !empty($filter_approved_date_to)) {
+                                                        $isInRange = ($approvalDateOnly >= $filter_approved_date_from && $approvalDateOnly <= $filter_approved_date_to);
+                                                    } else {
+                                                        $isInRange = true; // Mostrar todas si no hay filtro
+                                                    }
+                                                } else {
+                                                    $isInRange = true; // Mostrar si no hay fecha de aprobación
                                                 }
                                                 
                                                 if ($currentApprovedSupplier !== $invoice['nombre'] && empty($filter_supplier)) {
@@ -1899,10 +2582,10 @@ function formatApprovalTime($timestamp) {
                                     <div>
                                         <strong>Facturas aprobadas ocultas</strong> - 
                                         Tienes <?php echo count($approved_invoices); ?> facturas aprobadas
-                                        <?php if (!empty($filter_approved_date_from) && !empty($filter_approved_date_to)): ?>
+                                        <?php if (!empty($filter_date_from) && !empty($filter_date_to)): ?>
                                             <span class="badge bg-info text-white ms-2">
-                                                <?php echo date('d/m/Y', strtotime($filter_approved_date_from)); ?> - 
-                                                <?php echo date('d/m/Y', strtotime($filter_approved_date_to)); ?>
+                                                <?php echo date('d/m/Y', strtotime($filter_date_from)); ?> - 
+                                                <?php echo date('d/m/Y', strtotime($filter_date_to)); ?>
                                             </span>
                                         <?php endif; ?>
                                         <br>
@@ -1935,26 +2618,6 @@ function formatApprovalTime($timestamp) {
         document.getElementById('filtersForm').submit();
     }
 
-    function updateApprovedDateFilter() {
-        const dateFrom = document.getElementById('approvedDateFrom').value;
-        const dateTo = document.getElementById('approvedDateTo').value;
-        const currentUrl = new URL(window.location);
-        
-        if (dateFrom) {
-            currentUrl.searchParams.set('filter_approved_date_from', dateFrom);
-        } else {
-            currentUrl.searchParams.delete('filter_approved_date_from');
-        }
-        
-        if (dateTo) {
-            currentUrl.searchParams.set('filter_approved_date_to', dateTo);
-        } else {
-            currentUrl.searchParams.delete('filter_approved_date_to');
-        }
-        
-        window.location.href = currentUrl.toString();
-    }
-
     function goBack() {
         window.history.back();
     }
@@ -1966,6 +2629,14 @@ function formatApprovalTime($timestamp) {
     });
 
     document.addEventListener("DOMContentLoaded", function () {
+        // Manejar modales
+        document.querySelectorAll('.modal').forEach(modalEl => {
+            modalEl.addEventListener('show.bs.modal', function () {
+                if (this.parentElement !== document.body) {
+                    document.body.appendChild(this);
+                }
+            });
+        });
         const backBtn = document.querySelector('.back-button');
         if (backBtn) backBtn.style.display = 'none';
 
@@ -2336,4 +3007,4 @@ function formatApprovalTime($timestamp) {
     }
     </script>
 </body>
-</htm
+</html>

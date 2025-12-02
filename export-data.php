@@ -124,25 +124,20 @@ if (isset($grouped_invoices['error'])) {
     exit();
 }
 
-// Calcular totales generales
-$total_suppliers = count($grouped_invoices);
-$total_invoices = 0;
-$total_paid = 0;
-foreach ($grouped_invoices as $supplier_data) {
-    $total_invoices += $supplier_data['count'];
-    $total_paid += $supplier_data['total_paid'];
-}
-
 // Preparar datos para exportación
 $export_data = [];
+$facturasProcesadas = []; // Para evitar duplicados globalmente
+
 foreach ($grouped_invoices as $supplier_name => $supplier_data) {
-    $facturasMostradas = [];
     foreach ($supplier_data['invoices'] as $invoice) {
         $facturaId = $invoice['Factura'] ?? null;
-        if (in_array($facturaId, $facturasMostradas)) {
+        
+        // Evitar duplicados basándose en el ID de factura
+        $facturaKey = $facturaId . '_' . ($invoice['docnum_interno_sap'] ?? '');
+        if (in_array($facturaKey, $facturasProcesadas)) {
             continue;
         }
-        $facturasMostradas[] = $facturaId;
+        $facturasProcesadas[] = $facturaKey;
         
         $export_data[] = [
             'proveedor' => $supplier_name,
@@ -155,6 +150,23 @@ foreach ($grouped_invoices as $supplier_name => $supplier_data) {
             'estado' => (floatval($invoice['ValorPagado'] ?? 0) >= floatval($invoice['ValorTotal'] ?? 0)) ? 'Pagada' : 'Parcial'
         ];
     }
+}
+
+// Calcular totales basándose SOLO en los datos filtrados y exportados (sin duplicados)
+$total_suppliers = 0;
+$total_invoices = count($export_data);
+$total_paid = 0;
+$proveedoresUnicos = [];
+
+foreach ($export_data as $invoice) {
+    // Contar proveedores únicos
+    if (!in_array($invoice['proveedor'], $proveedoresUnicos)) {
+        $proveedoresUnicos[] = $invoice['proveedor'];
+        $total_suppliers++;
+    }
+    
+    // Sumar solo el valor pagado de las facturas filtradas
+    $total_paid += floatval($invoice['valor_pagado'] ?? 0);
 }
 
 // Devolver datos en formato JSON

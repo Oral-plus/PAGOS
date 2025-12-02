@@ -65,15 +65,22 @@ $user_name = $user['name'] ?? 'Usuario';
             --spacing-lg: 24px;
             --spacing-xl: 32px;
             --spacing-xxl: 48px;
-            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-            --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
-            --shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.12);
-            --border-radius-sm: 4px;
-            --border-radius-md: 8px;
-            --border-radius-lg: 12px;
-            --transition-fast: 150ms ease-in-out;
-            --transition-normal: 250ms ease-in-out;
-            --transition-slow: 350ms ease-in-out;
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            --border-radius-sm: 8px;
+            --border-radius-md: 12px;
+            --border-radius-lg: 16px;
+            --border-radius-xl: 20px;
+            --border-radius-2xl: 24px;
+            --border-radius-full: 9999px;
+            --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-normal: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-slow: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            --backdrop-blur: blur(12px);
+            --glass-bg: rgba(255, 255, 255, 0.85);
         }
 
         * {
@@ -86,45 +93,112 @@ $user_name = $user['name'] ?? 'Usuario';
             font-family: var(--font-primary);
             font-size: var(--font-size-base);
             color: var(--gray-800);
-            background-color: var(--gray-50);
+            background: linear-gradient(135deg, var(--gray-50) 0%, var(--gray-100) 100%);
             line-height: 1.6;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             margin: 0;
             height: 100vh;
-            overflow: hidden; /* Evita scroll */
+            overflow: hidden !important;
+            position: fixed;
+            width: 100%;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(0, 82, 204, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(0, 135, 90, 0.05) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
         }
 
         /* ================================================================
-           CONTENEDOR FIJO CENTRADO EN PANTALLA
+           CONTENEDOR FIJO CENTRADO EN PANTALLA (CON DASHBOARD)
            ================================================================ */
         .fixed-center-container {
             position: fixed;
-            inset: 0;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             display: flex;
             align-items: center;
             justify-content: center;
             padding: var(--spacing-lg);
-            z-index: 1000;
-            overflow: auto;
+            z-index: 1;
+            overflow: hidden !important;
+            margin-left: 250px; /* Ancho del sidebar */
+            width: calc(100% - 250px); /* Ancho total menos el sidebar */
+        }
+        
+        /* El sidebar está incluido en el HTML y se posiciona correctamente */
+        .fixed-center-container .sidebar-container {
+            position: fixed;
+            left: 0;
+            top: 0;
+            z-index: 1200;
+        }
+        
+        @media (max-width: 768px) {
+            .fixed-center-container {
+                margin-left: 0;
+                width: 100%;
+            }
         }
 
         /* ================================================================
-           TARJETA DE BIENVENIDA
+           TARJETA DE BIENVENIDA PREMIUM
            ================================================================ */
         .welcome-card {
-            max-width: 800px;
+            max-width: 850px;
             width: 100%;
-            background: white;
-            border-radius: var(--border-radius-lg);
-            box-shadow: var(--shadow-lg);
+            margin: 0 auto;
+            background: var(--glass-bg);
+            backdrop-filter: var(--backdrop-blur);
+            border-radius: var(--border-radius-2xl);
+            box-shadow: var(--shadow-2xl);
             overflow: hidden;
-            transition: transform var(--transition-normal), box-shadow var(--transition-normal);
+            transition: var(--transition-normal);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            position: relative;
+            animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            flex-shrink: 0;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .welcome-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary-color), var(--primary-light), var(--primary-color));
+            background-size: 200% 100%;
+            animation: shimmer 3s linear infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
 
         .welcome-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 16px 32px rgba(0, 0, 0, 0.15);
+            transform: translateY(-8px) scale(1.01);
+            box-shadow: var(--shadow-2xl), 0 0 40px rgba(0, 82, 204, 0.15);
         }
 
         /* ================================================================
@@ -258,6 +332,8 @@ $user_name = $user['name'] ?? 'Usuario';
         @media (max-width: 768px) {
             .fixed-center-container {
                 padding: var(--spacing-md);
+                margin-left: 0;
+                width: 100%;
             }
             .card-header-custom {
                 padding: var(--spacing-xl) var(--spacing-lg);
@@ -267,6 +343,9 @@ $user_name = $user['name'] ?? 'Usuario';
             }
             .card-body-custom {
                 padding: var(--spacing-lg);
+            }
+            .welcome-card {
+                max-width: 100%;
             }
         }
     </style>

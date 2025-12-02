@@ -193,14 +193,45 @@ $rejected_invoices = getRejectedInvoices($filter_supplier, $filter_date_from, $f
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/styles.css">
     <style>
+        /* ===========================
+           VARIABLES PREMIUM
+           =========================== */
         :root {
             --primary: #0d6efd;
-            --danger: #dc3545;
+            --primary-dark: #0056b3;
+            --primary-light: #3d8bfd;
+            --success: #28a745;
+            --success-dark: #198754;
             --warning: #ffc107;
-            --success: #198754;
+            --warning-dark: #ff8f00;
+            --danger: #dc3545;
+            --danger-dark: #b71c1c;
+            --info: #17a2b8;
+            --info-dark: #138496;
             --secondary: #6c757d;
-            --light: #f8f9fa;
-            --border: #dee2e6;
+            --secondary-dark: #5a6268;
+            
+            --gray-50: #f8f9fa;
+            --gray-100: #e9ecef;
+            --gray-200: #dee2e6;
+            --gray-300: #ced4da;
+            --gray-700: #495057;
+            --gray-800: #343a40;
+            
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 20px;
+            --radius-full: 9999px;
+            
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
         * {
@@ -209,16 +240,18 @@ $rejected_invoices = getRejectedInvoices($filter_supplier, $filter_date_from, $f
         
         body {
             font-size: 13px;
-            line-height: 1.4;
+            line-height: 1.5;
             background-color: #f5f6f7;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         }
         
-        /* Added keyframe animations for smooth entrance effects */
+        /* ===========================
+           ANIMACIONES PREMIUM
+           =========================== */
         @keyframes slideDown {
             from {
                 opacity: 0;
-                transform: translateY(-10px);
+                transform: translateY(-15px);
             }
             to {
                 opacity: 1;
@@ -229,9 +262,11 @@ $rejected_invoices = getRejectedInvoices($filter_supplier, $filter_date_from, $f
         @keyframes fadeIn {
             from {
                 opacity: 0;
+                transform: scale(0.98);
             }
             to {
                 opacity: 1;
+                transform: scale(1);
             }
         }
         
@@ -246,12 +281,25 @@ $rejected_invoices = getRejectedInvoices($filter_supplier, $filter_date_from, $f
             }
         }
         
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
         @keyframes pulse {
             0%, 100% {
                 opacity: 1;
+                transform: scale(1);
             }
             50% {
-                opacity: 0.8;
+                opacity: 0.9;
+                transform: scale(1.02);
             }
         }
         
@@ -266,90 +314,156 @@ $rejected_invoices = getRejectedInvoices($filter_supplier, $filter_date_from, $f
             }
         }
         
+        /* ===========================
+           CONTENEDOR Y MAIN PREMIUM
+           =========================== */
         .container-fluid {
             padding: 0;
         }
         
         main {
-            padding: 12px 16px;
-            animation: slideInLeft 0.5s ease-out;
+            padding: 1.5rem 2rem;
+            animation: slideInLeft 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
+        /* ===========================
+           ALERTAS PREMIUM
+           =========================== */
         .alert-sm {
-            padding: 8px 12px;
-            font-size: 12px;
-            margin-bottom: 12px;
-            animation: slideDown 0.4s ease-out;
+            padding: 0.875rem 1.25rem;
+            font-size: 0.875rem;
+            margin-bottom: 1.25rem;
+            animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: var(--radius-lg);
+            border: 2px solid transparent;
+            box-shadow: var(--shadow-md);
+            font-weight: 500;
+            letter-spacing: 0.025em;
+            transition: var(--transition);
         }
         
-        .card {
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            margin-bottom: 16px;
-            animation: slideDown 0.5s ease-out;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        /* Enhanced card hover effect */
-        .card:hover {
-            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        .alert-sm:hover {
             transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .alert-success {
+            background: linear-gradient(135deg, rgba(40, 167, 69, 0.1), rgba(40, 167, 69, 0.05));
+            border-color: var(--success);
+            color: var(--success-dark);
+        }
+        
+        .alert-danger {
+            background: linear-gradient(135deg, rgba(220, 53, 69, 0.1), rgba(220, 53, 69, 0.05));
+            border-color: var(--danger);
+            color: #b91c1c;
+        }
+        
+        .alert-info {
+            background: linear-gradient(135deg, rgba(23, 162, 184, 0.1), rgba(23, 162, 184, 0.05));
+            border-color: var(--info);
+            color: var(--info-dark);
+        }
+        
+        /* ===========================
+           CARDS PREMIUM
+           =========================== */
+        .card {
+            border: none;
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-lg);
+            margin-bottom: 1.5rem;
+            animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: var(--transition);
+            background: white;
+            overflow: hidden;
+        }
+        
+        .card:hover {
+            box-shadow: var(--shadow-xl);
+            transform: translateY(-3px);
         }
         
         .card-header {
-            padding: 10px 16px;
-            background-color: #fff;
-            border-bottom: 1px solid var(--border);
-            font-weight: 600;
-            font-size: 13px;
-            animation: slideDown 0.5s ease-out;
+            padding: 1.25rem 1.5rem;
+            background: linear-gradient(135deg, var(--gray-50), white);
+            border-bottom: 2px solid var(--gray-200);
+            font-weight: 700;
+            font-size: 0.9375rem;
+            animation: slideDown 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            letter-spacing: 0.025em;
+            color: var(--gray-800);
         }
         
         .card-body {
-            padding: 12px 16px;
-            animation: fadeIn 0.6s ease-out;
+            padding: 1.5rem;
+            animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
         .card-header.bg-primary {
-            background: linear-gradient(135deg, var(--primary) 0%, #0b5ed7 100%);
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
             color: white;
-        }
-        
-        .form-label {
-            font-size: 12px;
-            font-weight: 600;
-            margin-bottom: 4px;
-            animation: fadeIn 0.5s ease-out;
-        }
-        
-        .form-control, .form-select {
-            font-size: 12px;
-            padding: 6px 8px;
-            height: auto;
-            border-radius: 4px;
-            border: 1px solid var(--border);
-            transition: all 0.3s ease;
-        }
-        
-        /* Added focus states with smooth transitions */
-        .form-control:focus, .form-select:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.15);
-            transform: translateY(-1px);
-        }
-        
-        .btn {
-            font-size: 12px;
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-weight: 500;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-bottom: 3px solid rgba(255, 255, 255, 0.2);
             position: relative;
             overflow: hidden;
         }
         
-        /* Button ripple effect on hover */
+        .card-header.bg-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+            pointer-events: none;
+        }
+        
+        /* ===========================
+           FORMULARIOS E INPUTS PREMIUM
+           =========================== */
+        .form-label {
+            font-size: 0.8125rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            color: var(--gray-800);
+            letter-spacing: 0.025em;
+        }
+        
+        .form-control, .form-select {
+            font-size: 0.875rem;
+            padding: 0.625rem 0.875rem;
+            height: auto;
+            border-radius: var(--radius-lg);
+            border: 2px solid var(--gray-300);
+            transition: var(--transition);
+            font-weight: 500;
+        }
+        
+        .form-control:focus, .form-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.1), var(--shadow-md);
+            transform: translateY(-2px);
+            outline: none;
+        }
+        
+        /* ===========================
+           BOTONES PREMIUM
+           =========================== */
+        .btn {
+            font-size: 0.875rem;
+            padding: 0.625rem 1.125rem;
+            border-radius: var(--radius-lg);
+            font-weight: 600;
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+            letter-spacing: 0.025em;
+            border: 2px solid transparent;
+            box-shadow: var(--shadow-sm);
+        }
+        
         .btn::before {
             content: '';
             position: absolute;
@@ -368,201 +482,300 @@ $rejected_invoices = getRejectedInvoices($filter_supplier, $filter_date_from, $f
             height: 300px;
         }
         
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+        
         .btn-sm {
-            padding: 4px 8px;
-            font-size: 11px;
+            padding: 0.5rem 0.875rem;
+            font-size: 0.8125rem;
+            border-radius: var(--radius-md);
         }
         
         .btn-primary {
-            background-color: var(--primary);
-            border-color: var(--primary);
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-color: var(--primary-dark);
             color: white;
         }
         
         .btn-primary:hover {
-            background: linear-gradient(135deg, #0b5ed7 0%, #0a58ca 100%);
-            box-shadow: 0 4px 8px rgba(13, 110, 253, 0.3);
-            transform: translateY(-2px);
+            background: linear-gradient(135deg, var(--primary-light), var(--primary));
+            box-shadow: var(--shadow-lg);
         }
         
         .btn-warning {
-            background-color: var(--warning);
-            border-color: var(--warning);
+            background: linear-gradient(135deg, var(--warning), var(--warning-dark));
+            border-color: var(--warning-dark);
             color: #000;
         }
         
         .btn-warning:hover {
-            background: linear-gradient(135deg, #e0a800 0%, #d39e00 100%);
-            box-shadow: 0 4px 8px rgba(255, 193, 7, 0.3);
+            background: linear-gradient(135deg, #ffd54f, var(--warning));
+            box-shadow: var(--shadow-lg);
             transform: translateY(-2px);
         }
         
         .btn-info {
-            background-color: #0dcaf0;
-            border-color: #0dcaf0;
-            color: #000;
+            background: linear-gradient(135deg, var(--info), var(--info-dark));
+            border-color: var(--info-dark);
+            color: white;
         }
         
         .btn-info:hover {
-            background: linear-gradient(135deg, #31d5f8 0%, #0dcaf0 100%);
-            box-shadow: 0 4px 8px rgba(13, 202, 240, 0.3);
+            background: linear-gradient(135deg, #20c997, var(--info));
+            box-shadow: var(--shadow-lg);
             transform: translateY(-2px);
         }
         
         .btn-outline-secondary {
-            border-color: var(--secondary);
+            border: 2px solid var(--secondary);
             color: var(--secondary);
-            transition: all 0.3s ease;
+            background: transparent;
         }
         
         .btn-outline-secondary:hover {
-            background-color: var(--secondary);
-            box-shadow: 0 2px 6px rgba(108, 117, 125, 0.2);
+            background: linear-gradient(135deg, var(--secondary), var(--secondary-dark));
+            color: white;
+            border-color: var(--secondary-dark);
+            box-shadow: var(--shadow-md);
         }
         
-        /* Enhanced table styles with animations */
+        .btn-light {
+            background: linear-gradient(135deg, white, var(--gray-50));
+            border-color: var(--gray-300);
+            color: var(--gray-800);
+        }
+        
+        .btn-light:hover {
+            background: linear-gradient(135deg, var(--gray-50), white);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .btn-link {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+        
+        .btn-link:hover {
+            color: var(--primary-dark);
+            text-decoration: underline;
+        }
+        
+        /* ===========================
+           TABLAS PREMIUM
+           =========================== */
         .table {
-            font-size: 12px;
+            font-size: 0.875rem;
             margin-bottom: 0;
-            animation: fadeIn 0.6s ease-out;
+            animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            border-collapse: separate;
+            border-spacing: 0;
         }
         
         .table thead {
-            background-color: #f8f9fa;
-            border-bottom: 2px solid var(--border);
+            background: linear-gradient(135deg, var(--gray-100), var(--gray-50));
+            border-bottom: 3px solid var(--primary);
         }
         
         .table thead th {
-            padding: 8px 12px;
-            font-weight: 600;
-            font-size: 11px;
+            padding: 1rem 1.25rem;
+            font-weight: 700;
+            font-size: 0.75rem;
             text-transform: uppercase;
-            color: #333;
+            color: var(--gray-800);
             border: none;
-            animation: slideDown 0.5s ease-out;
+            animation: slideDown 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            letter-spacing: 0.05em;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         }
         
         .table tbody td {
-            padding: 8px 12px;
-            border-color: var(--border);
+            padding: 1rem 1.25rem;
+            border-color: var(--gray-200);
             vertical-align: middle;
-            transition: all 0.3s ease;
+            transition: var(--transition);
+            font-weight: 500;
+            color: var(--gray-700);
+            border-bottom: 1px solid var(--gray-200);
         }
         
-        /* Added row hover animation */
         .table tbody tr {
-            animation: slideInLeft 0.4s ease-out forwards;
+            animation: slideInUp 0.3s ease-out;
+            animation-fill-mode: both;
+            transition: var(--transition);
         }
         
-        .table tbody tr:nth-child(1) { animation-delay: 0s; }
-        .table tbody tr:nth-child(2) { animation-delay: 0.05s; }
-        .table tbody tr:nth-child(3) { animation-delay: 0.1s; }
-        .table tbody tr:nth-child(4) { animation-delay: 0.15s; }
-        .table tbody tr:nth-child(5) { animation-delay: 0.2s; }
-        .table tbody tr:nth-child(n+6) { animation-delay: 0.25s; }
+        .table tbody tr:nth-child(1) { animation-delay: 0.05s; }
+        .table tbody tr:nth-child(2) { animation-delay: 0.1s; }
+        .table tbody tr:nth-child(3) { animation-delay: 0.15s; }
+        .table tbody tr:nth-child(4) { animation-delay: 0.2s; }
+        .table tbody tr:nth-child(5) { animation-delay: 0.25s; }
+        .table tbody tr:nth-child(n+6) { animation-delay: 0.3s; }
         
         .table tbody tr:hover {
-            background: linear-gradient(90deg, rgba(13, 110, 253, 0.03) 0%, rgba(13, 110, 253, 0.08) 100%);
-            box-shadow: inset 0 0 0 1px rgba(13, 110, 253, 0.1);
-            transform: scale(1.01);
+            background: linear-gradient(90deg, rgba(13, 110, 253, 0.05), rgba(13, 110, 253, 0.02));
+            transform: translateX(2px);
+            box-shadow: var(--shadow-sm);
         }
         
         .table-responsive {
-            border-radius: 0;
-            animation: scaleIn 0.5s ease-out;
+            border-radius: var(--radius-lg);
+            animation: scaleIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
         }
         
+        /* ===========================
+           BADGES PREMIUM
+           =========================== */
         .badge {
-            padding: 3px 8px;
-            font-size: 10px;
-            font-weight: 600;
-            border-radius: 3px;
-            animation: scaleIn 0.4s ease-out;
-            transition: all 0.3s ease;
+            padding: 0.375rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border-radius: var(--radius-full);
+            animation: scaleIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: var(--transition);
+            letter-spacing: 0.025em;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
         }
         
         .badge:hover {
-            transform: scale(1.1);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: var(--shadow-md);
         }
         
         .badge.bg-danger {
-            background-color: var(--danger) !important;
+            background: linear-gradient(135deg, var(--danger), var(--danger-dark)) !important;
+            color: white;
         }
         
         .badge.bg-warning {
-            background-color: var(--warning) !important;
+            background: linear-gradient(135deg, var(--warning), var(--warning-dark)) !important;
             color: #000;
         }
         
         .badge.bg-success {
-            background-color: var(--success) !important;
+            background: linear-gradient(135deg, var(--success), var(--success-dark)) !important;
+            color: white;
         }
         
         .badge.bg-secondary {
-            background-color: var(--secondary) !important;
+            background: linear-gradient(135deg, var(--secondary), var(--secondary-dark)) !important;
+            color: white;
         }
         
+        /* ===========================
+           FORMULARIOS DE FILTRO PREMIUM
+           =========================== */
         .filter-form {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 8px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
             align-items: flex-end;
-            animation: slideDown 0.5s ease-out;
+            animation: slideDown 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
         .filter-group {
             display: flex;
             flex-direction: column;
-            animation: fadeIn 0.5s ease-out;
+            animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
-        /* Staggered animation for filter groups */
         .filter-group:nth-child(1) { animation-delay: 0s; }
         .filter-group:nth-child(2) { animation-delay: 0.1s; }
         .filter-group:nth-child(3) { animation-delay: 0.2s; }
         .filter-group:nth-child(4) { animation-delay: 0.3s; }
         .filter-group:nth-child(5) { animation-delay: 0.4s; }
         
+        /* ===========================
+           BOTONES DE ACCIÓN PREMIUM
+           =========================== */
         .action-buttons {
             display: flex;
-            gap: 4px;
+            gap: 0.5rem;
             flex-wrap: wrap;
-            animation: fadeIn 0.5s ease-out;
+            animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
-        /* Enhanced action button animations */
         .action-buttons .btn {
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: var(--transition);
         }
         
         .action-buttons .btn:hover {
             animation: pulse 0.6s ease-in-out;
         }
         
+        /* ===========================
+           MODALES PREMIUM
+           =========================== */
+        .modal-content {
+            border-radius: var(--radius-xl);
+            border: none;
+            box-shadow: var(--shadow-2xl);
+            overflow: hidden;
+        }
+        
         .modal-header {
-            background: linear-gradient(135deg, var(--warning) 0%, #e0a800 100%);
+            background: linear-gradient(135deg, var(--warning), var(--warning-dark));
             color: #000;
-            border-bottom: 1px solid var(--border);
-            padding: 10px 16px;
-            animation: slideDown 0.4s ease-out;
+            border-bottom: 3px solid rgba(0, 0, 0, 0.1);
+            padding: 1.25rem 1.5rem;
+            animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .modal-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+            pointer-events: none;
+        }
+        
+        .modal-title {
+            font-weight: 700;
+            letter-spacing: 0.025em;
+            position: relative;
+            z-index: 1;
         }
         
         .modal-body {
-            padding: 16px;
-            font-size: 12px;
-            animation: fadeIn 0.5s ease-out;
+            padding: 1.5rem;
+            font-size: 0.875rem;
+            animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
         .modal-footer {
-            padding: 12px 16px;
-            border-top: 1px solid var(--border);
-            animation: slideDown 0.4s ease-out reverse;
+            padding: 1rem 1.5rem;
+            border-top: 2px solid var(--gray-200);
+            background: var(--gray-50);
+            animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1) reverse;
         }
         
+        .modal.fade .modal-dialog {
+            animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        
+        /* ===========================
+           UTILIDADES PREMIUM
+           =========================== */
         .text-muted {
             color: var(--secondary) !important;
-            font-size: 11px;
+            font-size: 0.8125rem;
+            font-weight: 500;
         }
         
         .row {
@@ -570,26 +783,70 @@ $rejected_invoices = getRejectedInvoices($filter_supplier, $filter_date_from, $f
         }
         
         .g-3 {
-            gap: 8px !important;
+            gap: 1rem !important;
         }
         
         .col-md-3, .col-md-2, .col-md-6 {
             padding: 0;
         }
         
-        /* Modal animation */
-        .modal.fade .modal-dialog {
-            animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        /* ===========================
+           CHECKBOX PREMIUM
+           =========================== */
+        .form-check-input {
+            border-radius: var(--radius-sm);
+            border: 2px solid var(--gray-300);
+            transition: var(--transition);
+            cursor: pointer;
         }
         
-        /* Loading animation for export button */
-        #exportBtn:active {
-            animation: pulse 0.3s ease-out;
+        .form-check-input:checked {
+            background-color: var(--primary);
+            border-color: var(--primary);
         }
         
+        .form-check-input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.1);
+        }
+        
+        .form-check-label {
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--gray-700);
+            cursor: pointer;
+        }
+        
+        /* ===========================
+           TEXTAREA PREMIUM
+           =========================== */
+        textarea.form-control {
+            resize: vertical;
+            min-height: 100px;
+            border-radius: var(--radius-lg);
+        }
+        
+        /* ===========================
+           ACCESIBILIDAD
+           =========================== */
+        *:focus-visible {
+            outline: 3px solid var(--primary);
+            outline-offset: 3px;
+            border-radius: var(--radius-md);
+            box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.2);
+        }
+        
+        .btn:focus-visible {
+            outline-color: white;
+            outline-width: 4px;
+        }
+        
+        /* ===========================
+           RESPONSIVE
+           =========================== */
         @media (max-width: 768px) {
             main {
-                padding: 8px 12px;
+                padding: 1rem 1.25rem;
             }
             
             .filter-form {
@@ -597,12 +854,25 @@ $rejected_invoices = getRejectedInvoices($filter_supplier, $filter_date_from, $f
             }
             
             .table {
-                font-size: 11px;
+                font-size: 0.8125rem;
+            }
+            
+            .table thead th {
+                padding: 0.75rem 1rem;
+                font-size: 0.6875rem;
+            }
+            
+            .table tbody td {
+                padding: 0.75rem 1rem;
             }
             
             .btn {
-                font-size: 11px;
-                padding: 5px 10px;
+                font-size: 0.8125rem;
+                padding: 0.5rem 0.875rem;
+            }
+            
+            .card-body {
+                padding: 1.25rem;
             }
         }
     </style>

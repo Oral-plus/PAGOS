@@ -152,7 +152,11 @@ function getFilteredInvoices($date_filter = '', $status_filter = '', $supplier_f
 
 function getInvoiceById($id) {
     $conn = getDbConnection();
-    $sql = "SELECT * FROM invoices WHERE docnum_interno_sap = ?";
+    // MODIFICADO: NO mostrar facturas anteriores a 2022, solo facturas de 2022 en adelante
+    $sql = "SELECT TOP 1 * FROM invoices 
+            WHERE docnum_interno_sap = ?
+            AND YEAR(fecha_vencimiento) >= 2022
+            ORDER BY fecha_vencimiento ASC";
     $params = array($id);
     
     if (!($conn instanceof PDO)) {
@@ -164,6 +168,12 @@ function getInvoiceById($id) {
         sqlsrv_free_stmt($stmt);
         return $result ?: false;
     } else {
+        // Para MySQL/PDO, usar LIMIT en lugar de TOP
+        $sql = "SELECT * FROM invoices 
+                WHERE docnum_interno_sap = ?
+                AND YEAR(fecha_vencimiento) >= 2022
+                ORDER BY fecha_vencimiento ASC
+                LIMIT 1";
         $stmt = $conn->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetch(PDO::FETCH_ASSOC);
@@ -195,12 +205,18 @@ function getInvoiceItems($invoice_id) {
 
 function getInvoiceApprovals($invoice_id) {
     $conn = getDbConnection();
+    // MODIFICADO: Ordenar primero las facturas desde 2022 hacia abajo (más antiguas primero), luego las más recientes
     $sql = "
         SELECT a.*, u.name as user_name, u.role as user_role
         FROM invoice_approvals a
         JOIN users u ON a.user_id = u.id
         WHERE a.invoice_id = ?
-        ORDER BY a.created_at ASC
+        ORDER BY 
+            CASE 
+                WHEN YEAR(a.created_at) <= 2022 THEN 0 
+                ELSE 1 
+            END ASC,
+            a.created_at ASC
     ";
     $params = array($invoice_id);
     
@@ -216,6 +232,19 @@ function getInvoiceApprovals($invoice_id) {
         sqlsrv_free_stmt($stmt);
         return $results;
     } else {
+        // Para MySQL/PDO, usar DATE_FORMAT o YEAR
+        $sql = "
+            SELECT a.*, u.name as user_name, u.role as user_role
+            FROM invoice_approvals a
+            JOIN users u ON a.user_id = u.id
+            WHERE a.invoice_id = ?
+            ORDER BY 
+                CASE 
+                    WHEN YEAR(a.created_at) <= 2022 THEN 0 
+                    ELSE 1 
+                END ASC,
+                a.created_at ASC
+        ";
         $stmt = $conn->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);

@@ -168,7 +168,7 @@ class InvoiceManager {
         
         foreach ($invoices as $invoice) {
             $stats['total_invoices']++;
-            $stats['total_amount'] += ($invoice['saldo_pendiente'] ?? 0);
+            $stats['total_amount'] += getPositiveValue($invoice['saldo_pendiente'] ?? 0);
             
             $supplier = $invoice['nombre'];
             if (!in_array($supplier, $unique_suppliers)) {
@@ -240,7 +240,7 @@ class InvoiceManager {
                     );
                 }
                 $grouped[$supplier_name]['count']++;
-                $grouped[$supplier_name]['total'] += floatval($invoice['saldo_pendiente'] ?? 0);
+                $grouped[$supplier_name]['total'] += getPositiveValue($invoice['saldo_pendiente'] ?? 0);
                 $grouped[$supplier_name]['dates'][] = $invoice['fecha_vencimiento'];
             }
             
@@ -507,69 +507,203 @@ $completed_invoices = $invoiceManager->getCompletedInvoices($filter_supplier, $f
     <link rel="stylesheet" href="assets/css/styles.css">
     
     <style>
-        /* Estilos del sistema avanzado */
-        .supplier-header {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-left: 4px solid #007bff;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 1rem;
-            margin-top: 1.5rem;
-            font-weight: bold;
-            color: #495057;
-            border-top: 3px solid #007bff;
-            border-bottom: 1px solid #dee2e6;
+        /* ===========================
+           VARIABLES PREMIUM
+           =========================== */
+        :root {
+            --primary: #0d6efd;
+            --primary-dark: #0056b3;
+            --primary-light: #3d8bfd;
+            --success: #28a745;
+            --success-dark: #198754;
+            --warning: #ffc107;
+            --warning-dark: #ff8f00;
+            --danger: #dc3545;
+            --danger-dark: #b71c1c;
+            --info: #17a2b8;
+            --info-dark: #138496;
+            
+            --gray-50: #f8f9fa;
+            --gray-100: #e9ecef;
+            --gray-200: #dee2e6;
+            --gray-300: #ced4da;
+            --gray-700: #495057;
+            --gray-800: #343a40;
+            
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 20px;
+            --radius-full: 9999px;
+            
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-fast: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
+        /* ===========================
+           HEADER DE PROVEEDOR PREMIUM
+           =========================== */
+        .supplier-header {
+            background: linear-gradient(135deg, rgba(13, 110, 253, 0.05), rgba(13, 110, 253, 0.02));
+            border-left: 4px solid var(--primary);
+            border-top: 3px solid var(--primary);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            margin-bottom: 1.5rem;
+            margin-top: 1.5rem;
+            font-weight: 700;
+            color: var(--gray-800);
+            border-bottom: 2px solid var(--gray-200);
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .supplier-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--primary-light));
+            opacity: 0.8;
+        }
+        
+        .supplier-header:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+            border-left-width: 5px;
+        }
+        
+        /* ===========================
+           TABLA DE FACTURAS PREMIUM
+           =========================== */
         .invoice-table {
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
+            border: 2px solid var(--gray-200);
+            border-radius: var(--radius-lg);
             overflow: hidden;
             margin-bottom: 2rem;
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition);
         }
         
+        .invoice-table:hover {
+            box-shadow: var(--shadow-md);
+        }
+        
+        /* ===========================
+           RESUMEN TOTAL PREMIUM
+           =========================== */
         .total-summary {
-            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-            border-radius: 8px;
-            border: 1px solid #2196f3;
+            background: linear-gradient(135deg, rgba(33, 150, 243, 0.1), rgba(33, 150, 243, 0.05));
+            border-radius: var(--radius-xl);
+            border: 3px solid var(--info);
             position: sticky;
             bottom: 0;
             z-index: 5;
+            box-shadow: var(--shadow-xl);
+            backdrop-filter: blur(10px);
+            padding: 1.5rem;
+            transition: var(--transition);
         }
         
+        .total-summary:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-2xl);
+        }
+        
+        /* ===========================
+           TARJETAS DE ESTADÍSTICAS PREMIUM
+           =========================== */
         .stats-card {
-            background: linear-gradient(135deg, #f1f8e9 0%, #dcedc8 100%);
-            border-left: 4px solid #4caf50;
-            transition: transform 0.2s ease;
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(76, 175, 80, 0.05));
+            border-left: 4px solid var(--success);
+            border-radius: var(--radius-lg);
+            transition: var(--transition);
+            box-shadow: var(--shadow-md);
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .stats-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+            pointer-events: none;
         }
         
         .stats-card:hover {
-            transform: translateY(-2px);
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: var(--shadow-xl);
+            border-left-width: 5px;
         }
         
+        /* ===========================
+           BADGE DE PRIORIDAD PREMIUM
+           =========================== */
         .priority-badge {
-            font-weight: 500;
-            letter-spacing: 0.5px;
-            padding: 4px 8px;
-            border-radius: 4px;
-            display: inline-block;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            padding: 0.5rem 0.875rem;
+            border-radius: var(--radius-full);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
             text-transform: capitalize;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: var(--transition);
         }
         
-        /* Filtro de hoy */
+        .priority-badge:hover {
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: var(--shadow-md);
+        }
+        
+        /* ===========================
+           FILTRO DE HOY PREMIUM
+           =========================== */
         .today-filter-container {
-            background: linear-gradient(135deg, #007bff, #0056b3);
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 20px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: var(--radius-xl);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
             color: white;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .today-filter-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+            pointer-events: none;
         }
         
         .today-filter-switch {
-            transform: scale(1.2);
+            transform: scale(1.3);
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
         }
         
-        /* Estilos para búsqueda de proveedores */
+        /* ===========================
+           BÚSQUEDA DE PROVEEDORES PREMIUM
+           =========================== */
         .supplier-search-container {
             position: relative;
         }
@@ -580,55 +714,66 @@ $completed_invoices = $invoiceManager->getCompletedInvoices($filter_supplier, $f
             left: 0;
             right: 0;
             background: white;
-            border: 1px solid #ddd;
+            border: 2px solid var(--primary);
             border-top: none;
-            border-radius: 0 0 4px 4px;
-            max-height: 200px;
+            border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+            max-height: 250px;
             overflow-y: auto;
             z-index: 1000;
             display: none;
+            box-shadow: var(--shadow-xl);
+            backdrop-filter: blur(10px);
         }
         
         .supplier-suggestion {
-            padding: 10px 15px;
+            padding: 0.875rem 1.25rem;
             cursor: pointer;
-            border-bottom: 1px solid #f0f0f0;
-            transition: background-color 0.2s;
+            border-bottom: 1px solid var(--gray-200);
+            transition: var(--transition);
+            font-weight: 500;
+            color: var(--gray-700);
         }
         
         .supplier-suggestion:hover,
         .supplier-suggestion.active {
-            background-color: #f8f9fa;
+            background: linear-gradient(90deg, rgba(13, 110, 253, 0.1), rgba(13, 110, 253, 0.05));
+            transform: translateX(4px);
+            border-left: 3px solid var(--primary);
         }
         
         .search-icon {
             position: absolute;
-            right: 10px;
+            right: 1rem;
             top: 50%;
             transform: translateY(-50%);
-            color: #6c757d;
+            color: var(--gray-700);
+            font-size: 1.125rem;
         }
         
         .no-results {
-            padding: 10px 15px;
-            color: #6c757d;
+            padding: 1rem 1.25rem;
+            color: var(--gray-700);
             font-style: italic;
+            text-align: center;
         }
         
-        /* Sistema de preferencias mejorado */
+        /* ===========================
+           PANEL DE CONFIGURACIÓN PREMIUM
+           =========================== */
         .settings-panel {
             position: fixed;
-            top: 20px;
-            right: 20px;
+            top: 1.5rem;
+            right: 1.5rem;
             background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            padding: 20px;
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-2xl);
+            padding: 1.75rem;
             z-index: 1050;
-            max-width: 350px;
+            max-width: 380px;
             transform: translateX(100%);
-            transition: transform 0.3s ease;
-            border: 2px solid #007bff;
+            transition: var(--transition);
+            border: 3px solid var(--primary);
+            backdrop-filter: blur(12px);
         }
         
         .settings-panel.show {
@@ -637,43 +782,56 @@ $completed_invoices = $invoiceManager->getCompletedInvoices($filter_supplier, $f
         
         .settings-toggle {
             position: fixed;
-            top: 20px;
-            right: 20px;
+            top: 1.5rem;
+            right: 1.5rem;
             z-index: 1051;
-            background: #007bff;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
             color: white;
             border: none;
-            border-radius: 50%;
-            width: 55px;
-            height: 55px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            font-size: 1.2rem;
+            border-radius: var(--radius-full);
+            width: 60px;
+            height: 60px;
+            box-shadow: var(--shadow-xl);
+            font-size: 1.375rem;
+            transition: var(--transition);
+            border: 3px solid rgba(255, 255, 255, 0.2);
         }
         
         .settings-toggle:hover {
-            background: #0056b3;
-            transform: rotate(90deg);
+            background: linear-gradient(135deg, var(--primary-light), var(--primary));
+            transform: rotate(90deg) scale(1.1);
+            box-shadow: var(--shadow-2xl);
         }
         
         .preference-item {
-            margin-bottom: 15px;
-            padding: 12px;
-            border-radius: 8px;
-            background: #f8f9fa;
-            border-left: 3px solid #007bff;
+            margin-bottom: 1.25rem;
+            padding: 1.125rem;
+            border-radius: var(--radius-lg);
+            background: linear-gradient(135deg, var(--gray-50), white);
+            border-left: 3px solid var(--primary);
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition);
+        }
+        
+        .preference-item:hover {
+            transform: translateX(4px);
+            box-shadow: var(--shadow-md);
+            border-left-width: 4px;
         }
         
         .preference-label {
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 5px;
+            font-weight: 700;
+            color: var(--gray-800);
+            margin-bottom: 0.5rem;
             display: block;
+            letter-spacing: 0.025em;
         }
         
         .preference-description {
-            font-size: 0.85rem;
-            color: #666;
-            margin-bottom: 8px;
+            font-size: 0.875rem;
+            color: var(--gray-700);
+            margin-bottom: 0.75rem;
+            line-height: 1.5;
         }
         
         .preference-control {
@@ -684,76 +842,118 @@ $completed_invoices = $invoiceManager->getCompletedInvoices($filter_supplier, $f
         
         .auto-save-indicator {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #28a745;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            background: linear-gradient(135deg, var(--success), var(--success-dark));
             color: white;
-            padding: 12px 20px;
-            border-radius: 25px;
-            font-size: 0.9em;
+            padding: 0.875rem 1.5rem;
+            border-radius: var(--radius-full);
+            font-size: 0.9375rem;
             opacity: 0;
-            transition: opacity 0.3s ease;
+            transition: var(--transition);
             z-index: 1000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            box-shadow: var(--shadow-xl);
+            font-weight: 600;
+            letter-spacing: 0.025em;
+            border: 2px solid rgba(255, 255, 255, 0.2);
         }
         
         .auto-save-indicator.show {
             opacity: 1;
+            transform: translateY(-4px);
         }
         
-        /* Agrupación por proveedores */
+        /* ===========================
+           AGRUPACIÓN POR PROVEEDORES PREMIUM
+           =========================== */
         .supplier-group {
-            background-color: #f8f9fa;
-            border-left: 3px solid #007bff;
+            background: linear-gradient(135deg, var(--gray-50), white);
+            border-left: 4px solid var(--primary);
+            border-radius: var(--radius-md);
+            transition: var(--transition);
+        }
+        
+        .supplier-group:hover {
+            border-left-width: 5px;
+            box-shadow: var(--shadow-sm);
         }
         
         .supplier-total-badge {
-            background: linear-gradient(45deg, #007bff, #0056b3);
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
             color: white;
-            font-weight: 600;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.9em;
+            font-weight: 700;
+            padding: 0.625rem 1.125rem;
+            border-radius: var(--radius-full);
+            font-size: 0.9375rem;
+            box-shadow: var(--shadow-md);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            letter-spacing: 0.025em;
+            transition: var(--transition);
+        }
+        
+        .supplier-total-badge:hover {
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: var(--shadow-lg);
         }
         
         .supplier-count-badge {
-            background: linear-gradient(45deg, #28a745, #20c997);
+            background: linear-gradient(135deg, var(--success), var(--success-dark));
             color: white;
-            font-weight: 500;
-            padding: 4px 8px;
-            border-radius: 15px;
-            font-size: 0.8em;
+            font-weight: 600;
+            padding: 0.5rem 0.875rem;
+            border-radius: var(--radius-full);
+            font-size: 0.875rem;
+            box-shadow: var(--shadow-sm);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            letter-spacing: 0.025em;
+            transition: var(--transition);
+        }
+        
+        .supplier-count-badge:hover {
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: var(--shadow-md);
         }
         
         .today-completed-invoice {
-            background-color: #e3f2fd;
-            border-left: 4px solid #2196f3;
+            background: linear-gradient(135deg, rgba(33, 150, 243, 0.1), rgba(33, 150, 243, 0.05));
+            border-left: 4px solid var(--info);
+            transition: var(--transition);
         }
         
-        /* Estilos para la alerta personalizada mejorada */
+        .today-completed-invoice:hover {
+            background: linear-gradient(135deg, rgba(33, 150, 243, 0.15), rgba(33, 150, 243, 0.08));
+            border-left-width: 5px;
+            transform: translateX(2px);
+        }
+        
+        /* ===========================
+           ALERTA PERSONALIZADA PREMIUM
+           =========================== */
         .custom-alert-overlay {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(0, 0, 0, 0.7);
             z-index: 9999;
             display: flex;
             align-items: center;
             justify-content: center;
-            animation: fadeIn 0.3s ease;
+            animation: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(4px);
         }
         
         .custom-alert {
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-2xl);
             width: 100%;
-            max-width: 480px;
+            max-width: 500px;
             padding: 0;
             overflow: hidden;
-            animation: slideIn 0.3s ease;
+            animation: slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 3px solid var(--primary);
         }
         
         @keyframes fadeIn {
@@ -762,76 +962,100 @@ $completed_invoices = $invoiceManager->getCompletedInvoices($filter_supplier, $f
         }
         
         @keyframes slideIn {
-            from { transform: translateY(-30px) scale(0.95); }
-            to { transform: translateY(0) scale(1); }
+            from { transform: translateY(-40px) scale(0.95); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
         }
         
         .custom-alert-header {
             background: linear-gradient(135deg, #ff6b35, #f7931e);
             color: white;
-            padding: 20px;
+            padding: 1.5rem;
             text-align: center;
-            font-weight: bold;
-            font-size: 1.3rem;
+            font-weight: 800;
+            font-size: 1.375rem;
+            letter-spacing: 0.025em;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .custom-alert-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+            pointer-events: none;
         }
         
         .custom-alert-body {
-            padding: 25px;
+            padding: 2rem;
             text-align: center;
         }
         
         .custom-alert-body p {
-            margin-bottom: 20px;
-            font-size: 1.1rem;
-            color: #555;
-            line-height: 1.5;
+            margin-bottom: 1.5rem;
+            font-size: 1.125rem;
+            color: var(--gray-700);
+            line-height: 1.6;
+            font-weight: 500;
         }
         
         .custom-alert-invoice {
-            font-weight: bold;
-            color: #007bff;
-            background: #e3f2fd;
-            padding: 12px 20px;
-            border-radius: 8px;
-            margin: 20px auto;
+            font-weight: 700;
+            color: var(--primary);
+            background: linear-gradient(135deg, rgba(13, 110, 253, 0.1), rgba(13, 110, 253, 0.05));
+            padding: 1rem 1.5rem;
+            border-radius: var(--radius-lg);
+            margin: 1.5rem auto;
             display: inline-block;
-            border: 2px solid #007bff;
+            border: 3px solid var(--primary);
+            box-shadow: var(--shadow-md);
+            letter-spacing: 0.025em;
         }
         
         .custom-alert-footer {
             display: flex;
-            padding: 15px;
-            border-top: 1px solid #eee;
-            gap: 10px;
+            padding: 1.25rem;
+            border-top: 2px solid var(--gray-200);
+            gap: 0.75rem;
+            background: var(--gray-50);
         }
         
         .custom-alert-btn {
             flex: 1;
-            padding: 12px 20px;
+            padding: 0.875rem 1.5rem;
             border: none;
             cursor: pointer;
-            font-weight: 600;
-            border-radius: 6px;
-            transition: all 0.2s;
+            font-weight: 700;
+            border-radius: var(--radius-lg);
+            transition: var(--transition);
             font-size: 1rem;
+            letter-spacing: 0.025em;
+            box-shadow: var(--shadow-sm);
         }
         
         .btn-cancel {
-            background: #6c757d;
+            background: linear-gradient(135deg, var(--gray-700), var(--gray-800));
             color: white;
         }
         
         .btn-cancel:hover {
-            background: #5a6268;
+            background: linear-gradient(135deg, var(--gray-800), var(--gray-700));
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
         }
         
         .btn-confirm {
-            background: #007bff;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
             color: white;
         }
         
         .btn-confirm:hover {
-            background: #0056b3;
+            background: linear-gradient(135deg, var(--primary-light), var(--primary));
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
         }
         
         .loading-spinner {
@@ -846,84 +1070,465 @@ $completed_invoices = $invoiceManager->getCompletedInvoices($filter_supplier, $f
             display: none;
         }
         
-        /* Vista compacta */
+        /* ===========================
+           VISTA COMPACTA PREMIUM
+           =========================== */
         .compact-view .table td {
-            padding: 0.25rem 0.5rem;
+            padding: 0.375rem 0.625rem;
             font-size: 0.875rem;
         }
+        
         .compact-view .badge {
-            font-size: 0.7rem;
-            padding: 0.2rem 0.4rem;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
         }
+        
         .compact-view .btn-sm {
-            padding: 0.125rem 0.25rem;
+            padding: 0.25rem 0.5rem;
             font-size: 0.75rem;
         }
         
         .alert-dismissible {
-            animation: slideDown 0.3s ease-out;
+            animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
         @keyframes slideDown {
             from { transform: translateY(-20px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
-        /* Mejoras en el sistema de configuración */
+        
+        /* ===========================
+           SECCIONES DE CONFIGURACIÓN PREMIUM
+           =========================== */
         .settings-section {
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #eee;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1.25rem;
+            border-bottom: 2px solid var(--gray-200);
         }
+        
         .settings-section:last-child {
             border-bottom: none;
             margin-bottom: 0;
         }
+        
         .settings-section h6 {
-            color: #007bff;
-            font-weight: 600;
-            margin-bottom: 10px;
+            color: var(--primary);
+            font-weight: 700;
+            margin-bottom: 0.875rem;
+            letter-spacing: 0.025em;
+            font-size: 1.0625rem;
         }
+        
         .switch-container {
             display: flex;
             align-items: center;
             justify-content: space-between;
         }
+        
         .switch-label {
-            font-size: 0.9rem;
-            color: #333;
+            font-size: 0.9375rem;
+            color: var(--gray-800);
+            font-weight: 600;
         }
+        
         .form-switch .form-check-input {
-            width: 2.5em;
-            height: 1.25em;
+            width: 2.75em;
+            height: 1.375em;
+            cursor: pointer;
         }
-        /* Indicadores de estado mejorados */
+        
+        /* ===========================
+           INDICADORES DE ESTADO PREMIUM
+           =========================== */
         .status-indicator {
             position: fixed;
             top: 50%;
-            right: 30px;
+            right: 2rem;
             transform: translateY(-50%);
             background: white;
-            border-radius: 10px;
-            padding: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            border-left: 4px solid #007bff;
+            border-radius: var(--radius-xl);
+            padding: 1.25rem;
+            box-shadow: var(--shadow-2xl);
+            border-left: 4px solid var(--primary);
             opacity: 0;
-            transition: all 0.3s ease;
+            transition: var(--transition);
             z-index: 1000;
-            max-width: 250px;
+            max-width: 280px;
+            backdrop-filter: blur(12px);
         }
+        
         .status-indicator.show {
             opacity: 1;
-            transform: translateY(-50%) translateX(-10px);
+            transform: translateY(-50%) translateX(-12px);
         }
+        
         .status-indicator.success {
-            border-left-color: #28a745;
+            border-left-color: var(--success);
+            background: linear-gradient(135deg, rgba(40, 167, 69, 0.05), white);
         }
+        
         .status-indicator.warning {
-            border-left-color: #ffc107;
+            border-left-color: var(--warning);
+            background: linear-gradient(135deg, rgba(255, 193, 7, 0.05), white);
         }
+        
         .status-indicator.error {
-            border-left-color: #dc3545;
+            border-left-color: var(--danger);
+            background: linear-gradient(135deg, rgba(220, 53, 69, 0.05), white);
+        }
+        
+        /* ===========================
+           CARDS Y CONTENEDORES PREMIUM
+           =========================== */
+        .card {
+            border: none;
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-lg);
+            overflow: hidden;
+            transition: var(--transition);
+            background: white;
+        }
+        
+        .card:hover {
+            box-shadow: var(--shadow-xl);
+            transform: translateY(-2px);
+        }
+        
+        .card-header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            font-weight: 700;
+            padding: 1.5rem;
+            border-bottom: 3px solid rgba(255, 255, 255, 0.2);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 1rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .card-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+            pointer-events: none;
+        }
+        
+        .card-body {
+            padding: 1.75rem;
+        }
+        
+        /* ===========================
+           TABLAS PREMIUM
+           =========================== */
+        .table {
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-bottom: 0;
+        }
+        
+        .table thead th {
+            background: linear-gradient(135deg, var(--gray-100), var(--gray-50));
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.8125rem;
+            padding: 1rem 1.25rem;
+            border-bottom: 3px solid var(--primary);
+            color: var(--gray-800);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        .table tbody tr {
+            transition: var(--transition);
+            border-bottom: 1px solid var(--gray-200);
+        }
+        
+        .table tbody tr:hover {
+            background: linear-gradient(90deg, rgba(13, 110, 253, 0.05), rgba(13, 110, 253, 0.02));
+            transform: translateX(2px);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .table tbody td {
+            padding: 1rem 1.25rem;
+            vertical-align: middle;
+            border-bottom: 1px solid var(--gray-200);
+            font-weight: 500;
+            color: var(--gray-700);
+        }
+        
+        /* ===========================
+           BOTONES PREMIUM
+           =========================== */
+        .btn {
+            border-radius: var(--radius-lg);
+            font-weight: 600;
+            padding: 0.625rem 1.25rem;
+            transition: var(--transition);
+            letter-spacing: 0.025em;
+            border: 2px solid transparent;
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .btn-sm {
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            border-radius: var(--radius-md);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, var(--success), var(--success-dark));
+            border-color: var(--success-dark);
+        }
+        
+        .btn-success:hover {
+            background: linear-gradient(135deg, #34ce57, var(--success));
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-color: var(--primary-dark);
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, var(--primary-light), var(--primary));
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .btn-outline-primary {
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            background: transparent;
+        }
+        
+        .btn-outline-primary:hover {
+            background: var(--primary);
+            color: white;
+            transform: translateY(-2px);
+        }
+        
+        .btn-outline-secondary {
+            border: 2px solid var(--gray-300);
+            color: var(--gray-700);
+            background: transparent;
+        }
+        
+        .btn-outline-secondary:hover {
+            background: var(--gray-700);
+            color: white;
+            border-color: var(--gray-700);
+        }
+        
+        .btn-info {
+            background: linear-gradient(135deg, var(--info), var(--info-dark));
+            border-color: var(--info-dark);
+        }
+        
+        .btn-info:hover {
+            background: linear-gradient(135deg, #20c997, var(--info));
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, var(--warning), var(--warning-dark));
+            border-color: var(--warning-dark);
+        }
+        
+        .btn-warning:hover {
+            background: linear-gradient(135deg, #ffd54f, var(--warning));
+            box-shadow: var(--shadow-lg);
+        }
+        
+        /* ===========================
+           BADGES PREMIUM
+           =========================== */
+        .badge {
+            font-weight: 600;
+            padding: 0.5rem 0.875rem;
+            border-radius: var(--radius-full);
+            letter-spacing: 0.025em;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+        }
+        
+        .badge:hover {
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .badge.bg-success {
+            background: linear-gradient(135deg, var(--success), var(--success-dark)) !important;
+        }
+        
+        .badge.bg-info {
+            background: linear-gradient(135deg, var(--info), var(--info-dark)) !important;
+        }
+        
+        .badge.bg-warning {
+            background: linear-gradient(135deg, var(--warning), var(--warning-dark)) !important;
+        }
+        
+        /* ===========================
+           FORMULARIOS E INPUTS PREMIUM
+           =========================== */
+        .form-control,
+        .form-select {
+            border-radius: var(--radius-lg);
+            border: 2px solid var(--gray-300);
+            padding: 0.75rem 1rem;
+            transition: var(--transition);
+            font-weight: 500;
+            font-size: 0.9375rem;
+        }
+        
+        .form-control:focus,
+        .form-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.1), var(--shadow-md);
+            transform: translateY(-2px);
+            outline: none;
+        }
+        
+        .form-label {
+            font-weight: 600;
+            color: var(--gray-800);
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.025em;
+        }
+        
+        /* ===========================
+           ALERTAS PREMIUM
+           =========================== */
+        .alert {
+            border-radius: var(--radius-lg);
+            border: 2px solid transparent;
+            box-shadow: var(--shadow-md);
+            padding: 1.25rem 1.5rem;
+            font-weight: 500;
+            letter-spacing: 0.025em;
+            transition: var(--transition);
+        }
+        
+        .alert:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .alert-success {
+            background: linear-gradient(135deg, rgba(40, 167, 69, 0.1), rgba(40, 167, 69, 0.05));
+            border-color: var(--success);
+            color: var(--success-dark);
+        }
+        
+        .alert-danger {
+            background: linear-gradient(135deg, rgba(220, 53, 69, 0.1), rgba(220, 53, 69, 0.05));
+            border-color: var(--danger);
+            color: #b91c1c;
+        }
+        
+        .alert-info {
+            background: linear-gradient(135deg, rgba(23, 162, 184, 0.1), rgba(23, 162, 184, 0.05));
+            border-color: var(--info);
+            color: var(--info-dark);
+        }
+        
+        /* ===========================
+           ANIMACIONES
+           =========================== */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(15px) scale(0.98);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .card {
+            animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .table tbody tr {
+            animation: slideInUp 0.3s ease-out;
+            animation-fill-mode: both;
+        }
+        
+        .table tbody tr:nth-child(1) { animation-delay: 0.05s; }
+        .table tbody tr:nth-child(2) { animation-delay: 0.1s; }
+        .table tbody tr:nth-child(3) { animation-delay: 0.15s; }
+        .table tbody tr:nth-child(4) { animation-delay: 0.2s; }
+        .table tbody tr:nth-child(5) { animation-delay: 0.25s; }
+        .table tbody tr:nth-child(n+6) { animation-delay: 0.3s; }
+        
+        /* ===========================
+           ACCESIBILIDAD
+           =========================== */
+        *:focus-visible {
+            outline: 3px solid var(--primary);
+            outline-offset: 3px;
+            border-radius: var(--radius-md);
+            box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.2);
+        }
+        
+        .btn:focus-visible {
+            outline-color: white;
+            outline-width: 4px;
+        }
+        
+        /* ===========================
+           RESPONSIVE
+           =========================== */
+        @media (max-width: 768px) {
+            .settings-panel {
+                max-width: 90%;
+                right: 1rem;
+                top: 1rem;
+            }
+            
+            .settings-toggle {
+                width: 50px;
+                height: 50px;
+                font-size: 1.125rem;
+            }
+            
+            .supplier-header {
+                padding: 1rem;
+            }
+            
+            .card-body {
+                padding: 1.25rem;
+            }
         }
     </style>
 </head>
@@ -1215,7 +1820,7 @@ $completed_invoices = $invoiceManager->getCompletedInvoices($filter_supplier, $f
                                 $today = date('Y-m-d');
                                 
                                 foreach ($invoices as $invoice) {
-                                    $total += ($invoice['saldo_pendiente'] ?? 0);
+                                    // Usar solo getPositiveValue para evitar duplicación y asegurar valor positivo
                                     $total += getPositiveValue($invoice['saldo_pendiente'] ?? 0);
                                     
                                     // Contar facturas completadas hoy - CORREGIDO
