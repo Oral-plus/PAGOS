@@ -84,6 +84,14 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     </a>
                 </li>
                 <?php endif; ?>
+                <?php if (in_array($role, ['Auditoria'])): ?>
+                <li class="nav-item">
+                    <a class="nav-link <?php echo $current_page == 'approved_invoices.php' ? 'active' : ''; ?>" href="approved_invoices.php">
+                        <div class="nav-icon"><i class="fas fa-check-circle"></i></div>
+                        <span class="nav-text">Facturas Aprobadas</span>
+                    </a>
+                </li>
+                <?php endif; ?>
                 
                 <?php if (in_array($role, ['contador','admin','Preparador'])): ?>
                 <li class="nav-item">

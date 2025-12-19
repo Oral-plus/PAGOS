@@ -120,11 +120,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reject_invoice'])) {
 }
 
 $filter_supplier = $_GET['filter_supplier'] ?? '';
-$filter_date_from = $_GET['filter_date_from'] ?? '';
-$filter_date_to = $_GET['filter_date_to'] ?? '';
-// Usar las mismas fechas del formulario principal para las facturas aprobadas
-$filter_approved_date_from = $_GET['filter_date_from'] ?? '';
-$filter_approved_date_to = $_GET['filter_date_to'] ?? '';
+
+// Establecer fechas por defecto al mes actual si no se han especificado
+if (empty($_GET['filter_date_from']) && empty($_GET['filter_date_to'])) {
+    // Primer día del mes actual
+    $filter_date_from = date('Y-m-01');
+    // Último día del mes actual
+    $filter_date_to = date('Y-m-t');
+} else {
+    $filter_date_from = $_GET['filter_date_from'] ?? '';
+    $filter_date_to = $_GET['filter_date_to'] ?? '';
+}
+
+// Usar las mismas fechas para ambas secciones (pendientes y aprobadas)
+$filter_approved_date_from = $filter_date_from;
+$filter_approved_date_to = $filter_date_to;
 
 // Obtener lista de proveedores para el filtro
 $suppliers = getAllSuppliers();
@@ -132,6 +142,43 @@ $suppliers = getAllSuppliers();
 $pending_invoices = getPendingInvoicesForCurrentUser($user_id, $role, $filter_supplier, $filter_date_from, $filter_date_to);
 
 $approved_invoices = getApprovedInvoicesByUser($user_id, $filter_supplier, $filter_approved_date_from, $filter_approved_date_to);
+
+// Procesar facturas aprobadas para evitar duplicados y canceladas
+$uniqueApproved = [];
+$seenApprovedDocNums = [];
+
+foreach ($approved_invoices as $invoice) {
+    // Obtener valores de forma segura
+    $estadosap = isset($invoice['ESTADOSAP']) ? trim($invoice['ESTADOSAP']) : '';
+    $docnum = isset($invoice['docnum_interno_sap']) ? $invoice['docnum_interno_sap'] : null;
+    
+    // Log de depuración para las primeras facturas
+    if (count($uniqueApproved) < 3) {
+        error_log("Procesando factura - docnum: " . ($docnum ?? 'NULL') . ", ESTADOSAP: " . ($estadosap ?: 'NULL'));
+    }
+    
+    // Incluir factura si:
+    // 1. Tiene docnum_interno_sap
+    // 2. No está duplicada
+    // 3. No está cancelada (ESTADOSAP != 'C')
+    if ($docnum && !in_array($docnum, $seenApprovedDocNums)) {
+        // Solo excluir si explícitamente está cancelada
+        if ($estadosap != 'C') {
+            $uniqueApproved[] = $invoice;
+            $seenApprovedDocNums[] = $docnum;
+        } else {
+            error_log("Factura excluida por estar cancelada: " . $docnum);
+        }
+    } else {
+        if (!$docnum) {
+            error_log("Factura excluida por no tener docnum_interno_sap");
+        } else {
+            error_log("Factura duplicada excluida: " . $docnum);
+        }
+    }
+}
+
+error_log("Total facturas aprobadas: " . count($approved_invoices) . ", Únicas después de filtrado: " . count($uniqueApproved));
 
 // NUEVO: Calcular totales por proveedor para facturas aprobadas
 // ====== FACTURAS PENDIENTES - EVITAR DUPLICADOS ======
@@ -141,7 +188,9 @@ $seenDocNums = []; // Para rastrear TODAS las facturas ya procesadas
 
 // Primero procesamos las facturas aprobadas (solo las que no tienen ESTADOSAP = "C")
 foreach ($approved_invoices as $invoice) {
-    if (!in_array($invoice['docnum_interno_sap'], $seenDocNums) && $invoice['ESTADOSAP'] != 'C') {
+    // Verificar que la factura no esté cancelada y no haya sido procesada antes
+    $estadosap = isset($invoice['ESTADOSAP']) ? $invoice['ESTADOSAP'] : '';
+    if (!in_array($invoice['docnum_interno_sap'], $seenDocNums) && $estadosap != 'C') {
         $supplier_name = $invoice['nombre'];
         
         if (!isset($supplier_totals_approved[$supplier_name])) {
@@ -151,7 +200,7 @@ foreach ($approved_invoices as $invoice) {
             ];
         }
         
-        $supplier_totals_approved[$supplier_name]['total'] += $invoice['saldo_pendiente'];
+        $supplier_totals_approved[$supplier_name]['total'] += $invoice['saldo_pendiente'] ?? 0;
         $supplier_totals_approved[$supplier_name]['count']++;
         
         // Marcar esta factura como procesada
@@ -386,16 +435,30 @@ function getApprovedInvoicesByUser($user_id, $supplier = '', $date_from = '', $d
     $invoices = array();
 
     try {
-        // Base SQL query - Obtener facturas aprobadas por el usuario actual
-        $sql = "SELECT DISTINCT i.*, al.approval_time,
-                DATEDIFF(day, i.fecha_vencimiento, GETDATE()) as dias_antiguedad 
-                FROM invoices i 
-                INNER JOIN approval_logs al ON i.docnum_interno_sap = al.invoice_id
-                WHERE al.user_id = ?";
+        // SOLUCIÓN SIMPLIFICADA: Usar invoice_approvals como fuente principal
+        // Hacer LEFT JOIN con invoices para obtener los datos de la factura
+        // LEFT JOIN con approval_logs para obtener el tiempo exacto si existe
+        $sql = "SELECT DISTINCT 
+                i.*,
+                COALESCE(al.approval_time, ia.created_at) as approval_time,
+                DATEDIFF(day, i.fecha_vencimiento, GETDATE()) as dias_antiguedad
+                FROM invoice_approvals ia
+                LEFT JOIN invoices i ON ia.invoice_id = i.docnum_interno_sap
+                LEFT JOIN approval_logs al ON ia.invoice_id = al.invoice_id AND al.user_id = ia.user_id
+                WHERE ia.user_id = ? AND ia.action = 'approve'
+                AND (i.ESTADOSAP IS NULL OR i.ESTADOSAP != 'C')
+                AND i.docnum_interno_sap IS NOT NULL";
         $params = array($user_id);
         
+        // Filtro de fecha: usar created_at de invoice_approvals o approval_time de approval_logs
         if (!empty($date_from) && !empty($date_to)) {
-            $sql .= " AND CAST(al.approval_time AS DATE) BETWEEN ? AND ?";
+            $sql .= " AND (
+                (al.approval_time IS NOT NULL AND CAST(al.approval_time AS DATE) BETWEEN ? AND ?)
+                OR 
+                (al.approval_time IS NULL AND CAST(ia.created_at AS DATE) BETWEEN ? AND ?)
+            )";
+            $params[] = $date_from;
+            $params[] = $date_to;
             $params[] = $date_from;
             $params[] = $date_to;
         }
@@ -406,59 +469,49 @@ function getApprovedInvoicesByUser($user_id, $supplier = '', $date_from = '', $d
             $params[] = $supplier;
         }
         
-        // MODIFICADO: Ordenar primero las facturas desde 2022 hacia abajo (más antiguas primero), luego por proveedor y fecha de aprobación
-        $sql .= " ORDER BY 
-            CASE 
-                WHEN YEAR(i.fecha_vencimiento) <= 2022 THEN 0 
-                ELSE 1 
-            END ASC,
-            i.nombre ASC, 
-            al.approval_time DESC";
-        
-        // Limitar a 50 resultados para mejor rendimiento
-        $sql .= " LIMIT 50";
+        // Ordenar por fecha de aprobación descendente (más recientes primero)
+        $sql .= " ORDER BY COALESCE(al.approval_time, ia.created_at) DESC, i.nombre ASC";
         
         // Para depuración
-        error_log("SQL Query Approved: " . $sql);
-        error_log("Params Approved: " . print_r($params, true));
+        error_log("=== getApprovedInvoicesByUser ===");
+        error_log("User ID: " . $user_id);
+        error_log("Date From: " . $date_from);
+        error_log("Date To: " . $date_to);
+        error_log("Supplier: " . $supplier);
+        error_log("SQL Query: " . $sql);
+        error_log("Params: " . print_r($params, true));
         
         // Verificar si es una conexión PDO o sqlsrv
         if ($conn instanceof PDO) {
-            // Para PDO (MySQL), necesitamos modificar la consulta para usar las funciones de MySQL
+            // Para MySQL/PDO
             $sql = str_replace("DATEDIFF(day, i.fecha_vencimiento, GETDATE())", 
                               "DATEDIFF(CURDATE(), i.fecha_vencimiento)", $sql);
-            $sql = str_replace("CAST(GETDATE() AS DATE)", "CURDATE()", $sql);
             $sql = str_replace("CAST(al.approval_time AS DATE)", "DATE(al.approval_time)", $sql);
-            // Reemplazar YEAR() para MySQL si es necesario
-            $sql = preg_replace("/YEAR\(([^)]+)\)/", "YEAR($1)", $sql);
+            $sql = str_replace("CAST(ia.created_at AS DATE)", "DATE(ia.created_at)", $sql);
+            
+            error_log("SQL Query (MySQL): " . $sql);
             
             $stmt = $conn->prepare($sql);
             if (!$stmt) {
-                error_log("Error al preparar la consulta: " . print_r($conn->errorInfo(), true));
+                error_log("Error al preparar: " . print_r($conn->errorInfo(), true));
                 return $invoices;
             }
             
             $result = $stmt->execute($params);
             if (!$result) {
-                error_log("Error al ejecutar la consulta: " . print_r($stmt->errorInfo(), true));
+                error_log("Error al ejecutar: " . print_r($stmt->errorInfo(), true));
                 return $invoices;
             }
             
             $invoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } else {
-            // Usar funciones nativas de sqlsrv (SQL Server)
-            // Nota: LIMIT no funciona en SQL Server, usar TOP
-            // Convertir CAST para SQL Server
-            if (strpos($sql, "CAST(al.approval_time AS DATE)") !== false) {
-                // SQL Server usa CONVERT en lugar de CAST para fechas en este contexto
-                $sql = str_replace("CAST(al.approval_time AS DATE)", "CONVERT(DATE, al.approval_time)", $sql);
-            }
-            $sql = str_replace("LIMIT 50", "", $sql);
-            $sql = preg_replace("/SELECT DISTINCT i\.\*, al\.approval_time,/", "SELECT TOP 50 i.*, al.approval_time,", $sql);
+            // SQL Server
+            error_log("SQL Query (SQL Server): " . $sql);
             
             $stmt = sqlsrv_query($conn, $sql, $params);
             if ($stmt === false) {
-                error_log("Error en la consulta sqlsrv: " . print_r(sqlsrv_errors(), true));
+                $errors = sqlsrv_errors();
+                error_log("Error sqlsrv: " . print_r($errors, true));
                 return $invoices;
             }
             
@@ -468,12 +521,16 @@ function getApprovedInvoicesByUser($user_id, $supplier = '', $date_from = '', $d
             sqlsrv_free_stmt($stmt);
         }
         
-        // Para depuración
-        error_log("Número de facturas aprobadas encontradas: " . count($invoices));
+        // Depuración
+        error_log("Facturas encontradas: " . count($invoices));
+        if (count($invoices) > 0) {
+            error_log("Ejemplo de factura: " . json_encode($invoices[0]));
+        }
         
         return $invoices;
     } catch (Exception $e) {
-        error_log("Error en getApprovedInvoicesByUser: " . $e->getMessage());
+        error_log("EXCEPCIÓN en getApprovedInvoicesByUser: " . $e->getMessage());
+        error_log("Stack: " . $e->getTraceAsString());
         return $invoices;
     }
 }
@@ -667,9 +724,9 @@ function formatApprovalTime($timestamp) {
     background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     color: white;
     font-weight: 700;
-    padding: 0.375rem 0.75rem;
+    padding: 0.625rem 1.25rem;
     border-radius: var(--radius-full);
-    font-size: 0.8125rem;
+    font-size: 0.9375rem;
     box-shadow: var(--shadow-lg);
     letter-spacing: 0.05em;
     border: 2px solid rgba(255, 255, 255, 0.3);
@@ -677,7 +734,7 @@ function formatApprovalTime($timestamp) {
     transition: var(--transition);
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.5rem;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
@@ -690,9 +747,9 @@ function formatApprovalTime($timestamp) {
     background: linear-gradient(135deg, var(--success-light), var(--success));
     color: white;
     font-weight: 600;
-    padding: 0.375rem 0.625rem;
+    padding: 0.5rem 0.875rem;
     border-radius: var(--radius-full);
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     box-shadow: var(--shadow-md);
     letter-spacing: 0.025em;
     border: 1px solid rgba(255, 255, 255, 0.2);
@@ -700,7 +757,7 @@ function formatApprovalTime($timestamp) {
     transition: var(--transition);
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.375rem;
 }
 
 .supplier-count-badge:hover {
@@ -714,8 +771,8 @@ function formatApprovalTime($timestamp) {
 .date-filter-container {
     background: linear-gradient(135deg, #1e40af, #2563eb);
     border-radius: var(--radius-lg);
-    padding: 0.75rem;
-    margin-bottom: 1rem;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
     color: white;
     box-shadow: var(--shadow-lg);
     border: 1px solid rgba(255, 255, 255, 0.15);
@@ -899,8 +956,8 @@ function formatApprovalTime($timestamp) {
 .supplier-header td {
     background: linear-gradient(135deg, var(--gray-100), var(--gray-50)) !important;
     border-top: 4px solid var(--primary);
-    font-size: 0.875rem;
-    padding: 0.5rem 0.5rem;
+    font-size: 1rem;
+    padding: 1rem 1.25rem;
     letter-spacing: 0.03em;
     text-transform: uppercase;
     font-weight: 700;
@@ -1177,14 +1234,6 @@ function formatApprovalTime($timestamp) {
 .table {
     border-collapse: separate;
     border-spacing: 0;
-    width: 100%;
-    table-layout: auto;
-    font-size: 0.875rem;
-}
-
-.table-responsive {
-    overflow-x: visible;
-    width: 100%;
 }
 
 .table thead th {
@@ -1192,15 +1241,14 @@ function formatApprovalTime($timestamp) {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    font-size: 0.75rem;
-    padding: 0.5rem 0.5rem;
+    font-size: 0.8125rem;
+    padding: 1rem 1.25rem;
     border-bottom: 3px solid var(--primary);
     color: var(--gray-800);
     position: sticky;
     top: 0;
     z-index: 10;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-    white-space: nowrap;
 }
 
 .table tbody tr {
@@ -1214,10 +1262,9 @@ function formatApprovalTime($timestamp) {
 }
 
 .table tbody td {
-    padding: 0.5rem 0.5rem;
+    padding: 1rem 1.25rem;
     vertical-align: middle;
     border-bottom: 1px solid var(--gray-200);
-    font-size: 0.875rem;
 }
 
 .card {
@@ -1237,11 +1284,11 @@ function formatApprovalTime($timestamp) {
     background: linear-gradient(135deg, var(--primary), var(--primary-dark));
     color: white;
     font-weight: 700;
-    padding: 0.75rem 1rem;
+    padding: 1.5rem;
     border-bottom: 3px solid rgba(255, 255, 255, 0.2);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    font-size: 0.875rem;
+    font-size: 1rem;
     position: relative;
     overflow: hidden;
 }
@@ -1262,7 +1309,7 @@ function formatApprovalTime($timestamp) {
 }
 
 .card-body {
-    padding: 1rem;
+    padding: 1.75rem;
 }
 
 .btn {
@@ -1281,8 +1328,8 @@ function formatApprovalTime($timestamp) {
 }
 
 .btn-sm {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
     border-radius: var(--radius-md);
 }
 
@@ -1531,7 +1578,7 @@ function formatApprovalTime($timestamp) {
 
 .badge {
     font-weight: 600;
-    padding: 0.25rem 0.5rem;
+    padding: 0.5rem 0.875rem;
     border-radius: var(--radius-full);
     letter-spacing: 0.025em;
     box-shadow: var(--shadow-sm);
@@ -1539,8 +1586,7 @@ function formatApprovalTime($timestamp) {
     transition: var(--transition);
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    font-size: 0.75rem;
+    gap: 0.375rem;
 }
 
 .badge:hover {
@@ -1775,7 +1821,7 @@ function formatApprovalTime($timestamp) {
                 <button type="submit" class="btn-filter">
                     <i class="fas fa-search"></i> Filtrar
                 </button>
-                <a href="?" class="btn-reset" title="Limpiar filtros">
+                <a href="?" class="btn-reset" title="Limpiar filtros y aplicar mes actual" onclick="clearAllFilters(event)">
                     <i class="fas fa-times"></i>
                 </a>
             </div>
@@ -1940,15 +1986,15 @@ function formatApprovalTime($timestamp) {
                                 <table class="table table-striped table-hover">
                                     <thead class="table-light">
                                         <tr>
-                                            <th style="width: 90px;">Fecha</th>
-                                            <th style="min-width: 150px;">Proveedor</th>
-                                            <th style="width: 100px;">N Factura</th>
-                                            <th style="width: 120px;">Nit</th>
-                                            <th style="width: 100px;">Días Antigüedad</th>
-                                            <th style="width: 110px;">Valor</th>
-                                            <th style="width: 80px;">Prioridad</th>
-                                            <th style="width: 100px;">Estado</th>
-                                            <th style="width: 100px;">Acciones</th>
+                                            <th style="width: 120px;">Fecha</th>
+                                            <th>Proveedor</th>
+                                            <th>N Factura</th>
+                                            <th>Nit</th>
+                                            <th style="width: 120px;">Días Antigüedad</th>
+                                            <th style="width: 120px;">Valor</th>
+                                            <th style="width: 100px;">Prioridad</th>
+                                            <th style="width: 120px;">Estado</th>
+                                            <th style="width: 150px;">Acciones</th>
                                         </tr>
                                     </thead>
                                     <?php
@@ -2294,16 +2340,6 @@ function formatApprovalTime($timestamp) {
 
                 $totalFacturas = contarFacturasMostradas($pending_invoices);
                 $conteoDetallado = contarFacturasPorProveedor($pending_invoices);
-
-                $uniqueApproved = [];
-                $seenApprovedDocNums = [];
-
-                foreach ($approved_invoices as $invoice) {
-                    if (!in_array($invoice['docnum_interno_sap'], $seenApprovedDocNums)) {
-                        $uniqueApproved[] = $invoice;
-                        $seenApprovedDocNums[] = $invoice['docnum_interno_sap'];
-                    }
-                }
                 ?>
                 
                 <!-- SECCIÓN MODIFICADA: Tabla de facturas ya aprobadas con filtro de rango de fechas -->
@@ -2324,7 +2360,31 @@ function formatApprovalTime($timestamp) {
                     </div>
              
                     <div class="card-body">
-                        <?php if (count($approved_invoices) > 0): ?>
+                        <?php 
+                        // Inicializar si no está definida (por seguridad)
+                        if (!isset($uniqueApproved)) {
+                            $uniqueApproved = [];
+                        }
+                        
+                        // Mensaje de depuración visible (temporal)
+                        if (count($approved_invoices) > 0 && count($uniqueApproved) == 0): ?>
+                            <div class="alert alert-warning">
+                                <strong>Depuración:</strong> Se encontraron <?php echo count($approved_invoices); ?> facturas aprobadas, 
+                                pero después del filtrado quedan <?php echo count($uniqueApproved); ?>.
+                                <br><small>
+                                    <?php 
+                                    // Mostrar información de depuración
+                                    if (count($approved_invoices) > 0) {
+                                        $first = $approved_invoices[0];
+                                        echo "Primera factura - ESTADOSAP: " . (isset($first['ESTADOSAP']) ? $first['ESTADOSAP'] : 'NULL') . 
+                                             ", docnum: " . (isset($first['docnum_interno_sap']) ? $first['docnum_interno_sap'] : 'NULL');
+                                    }
+                                    ?>
+                                </small>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if (count($uniqueApproved) > 0): ?>
                             <?php if (empty($filter_supplier) && count($supplier_totals_approved) > 0): ?>
                                 <div class="alert alert-success mb-3">
                                     <div class="d-flex justify-content-between align-items-center">
@@ -2459,24 +2519,18 @@ function formatApprovalTime($timestamp) {
                                                 if (isset($invoice['approval_time'])) {
                                                     $approvalDate = formatApprovalTime($invoice['approval_time']);
                                                     
-                                                    // Convertir approval_time a fecha para comparación
-                                                    $approvalDateTime = $invoice['approval_time'];
-                                                    if (is_object($approvalDateTime) && method_exists($approvalDateTime, 'format')) {
-                                                        $approvalDateOnly = $approvalDateTime->format('Y-m-d');
-                                                    } elseif (is_string($approvalDateTime)) {
-                                                        $approvalDateOnly = date('Y-m-d', strtotime($approvalDateTime));
+                                                    // Convertir approval_time a formato de fecha para comparación
+                                                    $approvalDateOnly = '';
+                                                    if (is_object($invoice['approval_time']) && method_exists($invoice['approval_time'], 'format')) {
+                                                        $approvalDateOnly = $invoice['approval_time']->format('Y-m-d');
+                                                    } elseif (is_string($invoice['approval_time'])) {
+                                                        $approvalDateOnly = date('Y-m-d', strtotime($invoice['approval_time']));
                                                     } else {
-                                                        $approvalDateOnly = date('Y-m-d');
+                                                        $approvalDateOnly = date('Y-m-d', strtotime($approvalDate));
                                                     }
 
-                                                    // Si hay filtros de fecha, verificar si está en rango; si no hay filtros, mostrar todas
-                                                    if (!empty($filter_approved_date_from) && !empty($filter_approved_date_to)) {
-                                                        $isInRange = ($approvalDateOnly >= $filter_approved_date_from && $approvalDateOnly <= $filter_approved_date_to);
-                                                    } else {
-                                                        $isInRange = true; // Mostrar todas si no hay filtro
-                                                    }
-                                                } else {
-                                                    $isInRange = true; // Mostrar si no hay fecha de aprobación
+                                                    $isInRange = (!empty($filter_date_from) && !empty($filter_date_to)) ? 
+                                                        ($approvalDateOnly >= $filter_date_from && $approvalDateOnly <= $filter_date_to) : true;
                                                 }
                                                 
                                                 if ($currentApprovedSupplier !== $invoice['nombre'] && empty($filter_supplier)) {
@@ -2581,7 +2635,7 @@ function formatApprovalTime($timestamp) {
                                     <i class="fas fa-eye-slash me-2"></i>
                                     <div>
                                         <strong>Facturas aprobadas ocultas</strong> - 
-                                        Tienes <?php echo count($approved_invoices); ?> facturas aprobadas
+                                        Tienes <?php echo count($uniqueApproved); ?> facturas aprobadas
                                         <?php if (!empty($filter_date_from) && !empty($filter_date_to)): ?>
                                             <span class="badge bg-info text-white ms-2">
                                                 <?php echo date('d/m/Y', strtotime($filter_date_from)); ?> - 
@@ -2620,6 +2674,16 @@ function formatApprovalTime($timestamp) {
 
     function goBack() {
         window.history.back();
+    }
+
+    function clearAllFilters(event) {
+        event.preventDefault();
+        // Limpiar todos los campos del formulario
+        document.getElementById('filter_supplier').value = '';
+        document.getElementById('filter_date_from').value = '';
+        document.getElementById('filter_date_to').value = '';
+        // Redirigir a la página sin parámetros para aplicar valores por defecto
+        window.location.href = window.location.pathname;
     }
 
     window.addEventListener('pageshow', function (event) {
@@ -3007,4 +3071,4 @@ function formatApprovalTime($timestamp) {
     }
     </script>
 </body>
-</html>
+</htm
